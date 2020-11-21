@@ -143,6 +143,8 @@ class Network(object):
         node_json = json.load(open(json_path, 'r'))  # give path of the file
         self._nodes = {}  # Dict of Node
         self._lines = {}  # Dict of Line
+        self._weighted_paths = pd.DataFrame()
+
         for node_label in node_json:
             # Create the node instance
             node_dict = node_json[node_label]
@@ -159,6 +161,10 @@ class Network(object):
                 line_dict['length'] = np.sqrt(np.sum((node_position - connected_node_position) ** 2))
                 line = Line(line_dict)
                 self._lines[line_label] = line
+
+    @property
+    def weighted_paths(self):
+        return self._weighted_paths
 
     @property
     def nodes(self):
@@ -218,6 +224,33 @@ class Network(object):
         propagated_signal_information = start_node.propagate(signal_information)
         return propagated_signal_information
 
+    def set_weighted_paths(self, paths, latencies, noises, snrs):  # Create the weighted graph
+        self._weighted_paths['path'] = paths
+        self._weighted_paths['latency'] = latencies
+        self._weighted_paths['noise'] = noises
+        self._weighted_paths['snr'] = snrs
+
+    def find_best_snr(self, i_node, o_node):  # Find path with higher snr between two node
+        path_list = []
+        snr_list = []
+        for path in Network.find_paths(self, i_node.label, o_node.label):  # Retrieve all paths
+            for row in self._weighted_paths.itertuples():  # Search inside the dataframe
+                if row.path == path:
+                    path_list.append(row.path)
+                    snr_list.append(row.snr)
+        max_path = path_list[snr_list.index(max(snr_list))]
+        return max_path
+
+    def find_best_latency(self, i_node, o_node):  # Find path with lower latency between two node
+        path_list = []
+        lat_list = []
+        for path in Network.find_paths(self, i_node.label, o_node.label):  # Retrieve all paths
+            for row in self._weighted_paths.itertuples():  # Search inside the dataframe
+                if row.path == path:
+                    path_list.append(row.path)
+                    lat_list.append(row.latency)
+        min_path = path_list[lat_list.index(min(lat_list))]
+        return min_path
 
 #############################################################
 
@@ -235,11 +268,13 @@ def main():
     columns = ['path', 'latency', 'noise', 'snr']
     df = pd.DataFrame()
     paths = []
+    n_paths = []  # paths without '->'
     latencies = []
     noises = []
     snrs = []
     for pair in pairs:
         for path in network.find_paths(pair[0], pair[1]):
+            n_paths.append(path)
             path_string = ''
             for node in path:
                 path_string += node + '->'
@@ -258,6 +293,15 @@ def main():
     df['latency'] = latencies
     df['noise'] = noises
     df['snr'] = snrs
+
+    # Es1 lab4
+    network.set_weighted_paths(n_paths, latencies, noises, snrs)  # Instanciate weighted graph
+    # Es2 lab4
+    snr_custom_nodes = network.find_best_snr(network.nodes['C'], network.nodes['A'])  # Search for path with bst snr
+    print('Path with best snr between the two input nodes is: ', snr_custom_nodes)
+    # Es3 lab4
+    lat_custom_nodes = network.find_best_latency(network.nodes['C'], network.nodes['A'])  # Search bst snr
+    print('Path with best latency between the two input nodes is: ', lat_custom_nodes)
 
 
 if __name__ == "__main__":
