@@ -252,8 +252,60 @@ class Network(object):
         min_path = path_list[lat_list.index(min(lat_list))]
         return min_path
 
+    def stream(self, conn_list, lat_snr_label):
+        path = []
+        for elem in conn_list:  # CHeck all connection istance
+            if lat_snr_label == 'latency':  # If check for latency
+                path = Network.find_best_latency(self, self._nodes[elem.input], self._nodes[elem.output])
+            elif lat_snr_label == 'snr':  # If check for snr
+                path = Network.find_best_snr(self, self._nodes[elem.input], self._nodes[elem.output])
+            signal_information = SignalInformation(1, path)
+            signal_information = Network.propagate(self, signal_information)
+            elem.latency = signal_information.latency
+            elem.snr = 10 * np.log10(signal_information.signal_power / signal_information.noise_power)
+
+
 #############################################################
 
+
+class Connection(object):
+    def __init__(self, conn_dict):
+        self._input = conn_dict['input']
+        self._output = conn_dict['output']
+        self._signal_power = conn_dict['signal_power']
+        self._latency = 0.0
+        self._snr = 0.0
+
+    @property
+    def input(self):
+        return self._input
+
+    @property
+    def output(self):
+        return self._output
+
+    @property
+    def signal_power(self):
+        return self._signal_power
+
+    @property
+    def latency(self):
+        return self._latency
+
+    @latency.setter
+    def latency(self, latency):
+        self._latency = latency
+
+    @property
+    def snr(self):
+        return self._snr
+
+    @snr.setter
+    def snr(self, snr):
+        self._snr = snr
+
+
+#############################################################
 
 def main():
     network = Network('nodes.json')
@@ -265,7 +317,7 @@ def main():
         for label2 in node_labels:
             if label1 != label2:
                 pairs.append(label1 + label2)
-    columns = ['path', 'latency', 'noise', 'snr']
+    # columns = ['path', 'latency', 'noise', 'snr']
     df = pd.DataFrame()
     paths = []
     n_paths = []  # paths without '->'
@@ -295,13 +347,25 @@ def main():
     df['snr'] = snrs
 
     # Es1 lab4
-    network.set_weighted_paths(n_paths, latencies, noises, snrs)  # Instanciate weighted graph
+    network.set_weighted_paths(n_paths, latencies, noises, snrs)  # Instance weighted graph
     # Es2 lab4
-    snr_custom_nodes = network.find_best_snr(network.nodes['C'], network.nodes['A'])  # Search for path with bst snr
-    print('Path with best snr between the two input nodes is: ', snr_custom_nodes)
+    # snr_custom_nodes = network.find_best_snr(network.nodes['C'], network.nodes['A'])  # Search for path with bst snr
+    # print('Path with best snr between the two input nodes is: ', snr_custom_nodes)
     # Es3 lab4
-    lat_custom_nodes = network.find_best_latency(network.nodes['C'], network.nodes['A'])  # Search bst snr
-    print('Path with best latency between the two input nodes is: ', lat_custom_nodes)
+    # lat_custom_nodes = network.find_best_latency(network.nodes['C'], network.nodes['A'])  # Search bst snr
+    # print('Path with best latency between the two input nodes is: ', lat_custom_nodes)
+    # Es5 lab4
+    c1 = {'input': 'E', 'output': 'B', 'signal_power': 1}
+    con1 = Connection(c1)
+    c2 = {'input': 'B', 'output': 'D', 'signal_power': 1}
+    con2 = Connection(c2)
+    c3 = {'input': 'C', 'output': 'A', 'signal_power': 1}
+    con3 = Connection(c3)
+    c4 = {'input': 'A', 'output': 'C', 'signal_power': 1}
+    con4 = Connection(c4)
+    con_dict = [con1, con2, con3, con4]
+    network.stream(con_dict, 'snr')   # Latency or snr
+    # Es6 lab4
 
 
 if __name__ == "__main__":
