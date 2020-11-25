@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.constants import c
+import random
 
 
 class SignalInformation(object):
@@ -261,8 +262,10 @@ class Network(object):
                 path = Network.find_best_snr(self, self._nodes[elem.input], self._nodes[elem.output])
             signal_information = SignalInformation(1, path)
             signal_information = Network.propagate(self, signal_information)
-            elem.latency = signal_information.latency
-            elem.snr = 10 * np.log10(signal_information.signal_power / signal_information.noise_power)
+            if lat_snr_label == 'latency':  # If check for latency
+                elem.latency = signal_information.latency
+            elif lat_snr_label == 'snr':
+                elem.snr = 10 * np.log10(signal_information.signal_power / signal_information.noise_power)
 
 
 #############################################################
@@ -355,17 +358,37 @@ def main():
     # lat_custom_nodes = network.find_best_latency(network.nodes['C'], network.nodes['A'])  # Search bst snr
     # print('Path with best latency between the two input nodes is: ', lat_custom_nodes)
     # Es5 lab4
-    c1 = {'input': 'E', 'output': 'B', 'signal_power': 1}
-    con1 = Connection(c1)
-    c2 = {'input': 'B', 'output': 'D', 'signal_power': 1}
-    con2 = Connection(c2)
-    c3 = {'input': 'C', 'output': 'A', 'signal_power': 1}
-    con3 = Connection(c3)
-    c4 = {'input': 'A', 'output': 'C', 'signal_power': 1}
-    con4 = Connection(c4)
-    con_dict = [con1, con2, con3, con4]
-    network.stream(con_dict, 'snr')   # Latency or snr
+    # con1 = Connection({'input': 'E', 'output': 'B', 'signal_power': 1})
+    # con2 = Connection({'input': 'B', 'output': 'D', 'signal_power': 1})
+    # con3 = Connection({'input': 'C', 'output': 'A', 'signal_power': 1})
+    # con4 = Connection({'input': 'A', 'output': 'C', 'signal_power': 1})
+    # con_dict = [con1, con2, con3, con4]
+    # network.stream(con_dict, 'snr')   # Latency or snr
     # Es6 lab4
+    con_dict = []
+    for i in range(100):
+        i_node = random.choice(list(network.nodes))  # Random input node
+        o_node = random.choice(list(network.nodes))  # Random output node
+        while i_node == o_node:   # Output node must be different from input ones
+            o_node = random.choice(list(network.nodes))
+        con_dict.append(Connection({'input': i_node, 'output': o_node, 'signal_power': 1}))
+    network.stream(con_dict, 'latency')
+    network.stream(con_dict, 'snr')
+    lbl_axes = []
+    lat_axes = []
+    snr_axes = []
+    for i in range(100):
+        lbl_axes.append(con_dict[i].input + con_dict[i].output)
+        lat_axes.append(con_dict[i].latency)
+        snr_axes.append(con_dict[i].snr)
+    plt.figure(figsize=(9, 3))
+    plt.subplot(121)
+    plt.bar(lbl_axes, lat_axes)  # latency distribution
+    plt.ylabel('latency')
+    plt.subplot(122)
+    plt.bar(lbl_axes, snr_axes)  # snr distribution
+    plt.ylabel('snr')
+    plt.show()
 
 
 if __name__ == "__main__":
