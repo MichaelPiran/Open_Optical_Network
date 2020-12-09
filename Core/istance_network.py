@@ -3,9 +3,13 @@ Istance of the Network
 """
 import pandas as pd
 import numpy as np
+from pathlib import Path
 from Core.elements import Network, SignalInformation
 
-network = Network('../Resources/nodes.json')
+root = Path(__file__).parent.parent
+folder = root/'Resources'
+file = folder/'nodes.json'
+network = Network(file)
 
 network.connect()
 node_labels = network.nodes.keys()  # A,B,C,D;E,F

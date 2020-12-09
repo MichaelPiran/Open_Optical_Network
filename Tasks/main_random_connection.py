@@ -5,6 +5,7 @@ from Core.istance_network import *
 from Core.elements import Connection
 
 network.set_weighted_paths(n_paths, latencies, noises, snrs)  # Instance weighted graph
+
 con_dict = []
 for i in range(100):
     i_node = random.choice(list(network.nodes))  # Random input node
@@ -29,3 +30,4 @@ plt.subplot(122)
 plt.bar(lbl_axes, snr_axes)  # snr distribution
 plt.ylabel('snr')
 plt.show()
+

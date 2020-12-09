@@ -3,6 +3,10 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.constants import c
+from Core.utils import stream_propagate
+
+
+###################################################################
 
 
 class SignalInformation(object):
@@ -53,6 +57,22 @@ class SignalInformation(object):
 ###################################################################
 
 
+class Lightpath(SignalInformation):
+    def __init__(self, power, path):
+        super().__init__(power, path)
+        self._channel = 0  # Indicate which frequency slot the signal occupy
+
+    @property
+    def channel(self):
+        return self._channel
+
+    def set_channel(self, channel):
+        self._channel = channel
+
+
+###################################################################
+
+
 class Node(object):
     def __init__(self, node_dic):
         """"
@@ -93,6 +113,7 @@ class Node(object):
             signal_information = line.propagate(signal_information)  # Call successive element propagate method
         return signal_information
 
+
 ####################################################################
 
 
@@ -101,7 +122,8 @@ class Line(object):
         self._label = line_dict['label']
         self._length = line_dict['length']
         self._successive = {}
-        self._state = 'free'  # free or occupied
+        self._state = ['free', 'free', 'free', 'free', 'free',
+                       'free', 'free', 'free', 'free', 'free']  # list of 10 channels indicating 'free' or 'occupied'
 
     @property
     def label(self):
@@ -246,11 +268,11 @@ class Network(object):
             for row in self._weighted_paths.itertuples():  # Search inside the dataframe
                 if row.path == path:
                     # If the line between each node is occupied don't consider it
-                    flag_state = 'free'
+                    flag_state = 'true'  # the path is available
                     for i in range(len(row.path)-1):
-                        if self._lines[row.path[i]+row.path[i+1]].state == 'false':
+                        if self._lines[row.path[i]+row.path[i+1]].state == 'occupied':  # check if somepath is occupied
                             flag_state = 'false'
-                    if flag_state == 'free':
+                    if flag_state == 'true':
                         path_list.append(row.path)
                         snr_list.append(row.snr)
         max_path = path_list[snr_list.index(max(snr_list))]
@@ -265,8 +287,8 @@ class Network(object):
                     # If the line between each node is occupied don't consider it
                     flag_state = 'free'
                     for i in range(len(row.path)-1):
-                        if self._lines[row.path[i]+row.path[i+1]].state == 'false':
-                            flag_state = 'false'
+                        if self._lines[row.path[i]+row.path[i+1]].state == 'occupied':
+                            flag_state = 'occupied'
                     if flag_state == 'free':
                         path_list.append(row.path)
                         lat_list.append(row.latency)
@@ -280,9 +302,20 @@ class Network(object):
                 path = Network.find_best_latency(self, self._nodes[elem.input], self._nodes[elem.output])
             elif lat_snr_label == 'snr':  # If check for snr
                 path = Network.find_best_snr(self, self._nodes[elem.input], self._nodes[elem.output])
+
             if len(path) != 0:  # There is almost a free path available
                 signal_information = SignalInformation(1, path)
                 signal_information = Network.propagate(self, signal_information)
+                lightpath = Lightpath(1, path)  # suppose channel 0
+                stream_propagate(lightpath, self._lines)
+                """
+                Consider pair of consecutive nodel in the current path. run stream_propagate()
+                anditerate until all  node are explot
+                check the first channel available
+                occupy that channel. setting line.state[n_ch]= occupy
+                send lightpath
+                """
+
                 if lat_snr_label == 'latency':  # If check for latency
                     elem.latency = signal_information.latency
                 elif lat_snr_label == 'snr':
