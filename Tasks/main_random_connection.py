@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from Core.istance_network import *
 from Core.elements import Connection
 
-network.set_weighted_paths(n_paths, latencies, noises, snrs)  # Instance weighted graph
+#  network.set_weighted_paths(n_paths, latencies, noises, snrs)  # Instance weighted graph
 
 con_dict = []
 for i in range(100):
@@ -30,4 +30,3 @@ plt.subplot(122)
 plt.bar(lbl_axes, snr_axes)  # snr distribution
 plt.ylabel('snr')
 plt.show()
-

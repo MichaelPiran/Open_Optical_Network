@@ -17,7 +17,7 @@ def channel_available(current_line):
     return channel
 
 
-def stream_propagate(lightpath, lines):
+def stream_propagate(lightpath, lines, route_space):
     # given a line between two nodes, propagate a lightpath
     if len(lightpath.path) > 1:
         line_label = lightpath.path[:2]  # consider two node at time
@@ -29,7 +29,10 @@ def stream_propagate(lightpath, lines):
         lightpath.add_noise(noise)  # noise of lightpath
 
         free_channel = channel_available(current_line)  # select first channel available
+        # update the routing space
+        route_space.loc[line_label, free_channel] = 'occupied'
+
         lightpath.set_channel(free_channel)
         lightpath.next()  # consider next lightpath
-        lightpath = stream_propagate(lightpath, lines)  # Call successive element propagate method
+        lightpath = stream_propagate(lightpath, lines, route_space)  # Call successive element propagate method
     return lightpath

@@ -42,3 +42,4 @@ df['path'] = paths
 df['latency'] = latencies
 df['noise'] = noises
 df['snr'] = snrs
+network.set_weighted_paths(n_paths, latencies, noises, snrs)  # Instance weighted graph

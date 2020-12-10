@@ -175,7 +175,10 @@ class Network(object):
         self._nodes = {}  # Dict of Node
         self._lines = {}  # Dict of Line
         self._weighted_paths = pd.DataFrame()
+        self._route_space = pd.DataFrame()
 
+        routing_state = []  # state of each path for the routing space
+        routing_index = []  # path for the routing space
         for node_label in node_json:
             # Create the node instance
             node_dict = node_json[node_label]
@@ -191,7 +194,11 @@ class Network(object):
                 connected_node_position = np.array(node_json[connected_node_label]['position'])
                 line_dict['length'] = np.sqrt(np.sum((node_position - connected_node_position) ** 2))
                 line = Line(line_dict)
+                routing_state.append(line.state)
+                routing_index.append(line_label)
                 self._lines[line_label] = line
+        # Define the route space
+        self._route_space = pd.DataFrame(routing_state, routing_index)  # Route space data frame
 
     @property
     def weighted_paths(self):
@@ -265,34 +272,43 @@ class Network(object):
         path_list = []
         snr_list = []
         for path in Network.find_paths(self, i_node.label, o_node.label):  # Retrieve all paths
-            for row in self._weighted_paths.itertuples():  # Search inside the dataframe
-                if row.path == path:
-                    # If the line between each node is occupied don't consider it
-                    flag_state = 'true'  # the path is available
-                    for i in range(len(row.path)-1):
-                        if self._lines[row.path[i]+row.path[i+1]].state == 'occupied':  # check if somepath is occupied
-                            flag_state = 'false'
-                    if flag_state == 'true':
-                        path_list.append(row.path)
-                        snr_list.append(row.snr)
-        max_path = path_list[snr_list.index(max(snr_list))]
+            row_df = self._weighted_paths.loc[self._weighted_paths['path'] == path]
+            row = row_df['path'].values[0]
+            # If the line between each node is occupied don't consider it
+            flag_state = 'true'  # the path is available
+            for i in range(len(row) - 1):
+                label = row[i] + row[i + 1]  # label of consecutive two nodes
+                if 'free' not in self._route_space.loc[label].values:  # check in the routing space
+                    flag_state = 'false'
+            if flag_state == 'true':
+                path_list.append(row)
+                snr_list.append(row_df['snr'].values[0])
+        if len(snr_list) > 0:    # if snr list is empy
+            max_path = path_list[snr_list.index(max(snr_list))]
+        else:
+            max_path = ''
         return max_path
 
     def find_best_latency(self, i_node, o_node):  # Find path with lower latency between two node
         path_list = []
         lat_list = []
         for path in Network.find_paths(self, i_node.label, o_node.label):  # Retrieve all paths
-            for row in self._weighted_paths.itertuples():  # Search inside the dataframe
-                if row.path == path:
-                    # If the line between each node is occupied don't consider it
-                    flag_state = 'free'
-                    for i in range(len(row.path)-1):
-                        if self._lines[row.path[i]+row.path[i+1]].state == 'occupied':
-                            flag_state = 'occupied'
-                    if flag_state == 'free':
-                        path_list.append(row.path)
-                        lat_list.append(row.latency)
-        min_path = path_list[lat_list.index(min(lat_list))]
+            row_df = self._weighted_paths.loc[self._weighted_paths['path'] == path]
+            row = row_df['path'].values[0]
+            # If the line between each node is occupied don't consider it
+            flag_state = 'true'  # the path is available
+            for i in range(len(row) - 1):
+                label = row[i] + row[i + 1]  # label of consecutive two nodes
+                if 'free' not in self._route_space.loc[label].values:  # check in the routing space
+                    flag_state = 'false'  # there is no available channel
+            if flag_state == 'true':
+                path_list.append(row)
+                lat_list.append(row_df['latency'].values[0])
+
+        if len(lat_list) > 0:  # if latency list is empy
+            min_path = path_list[lat_list.index(min(lat_list))]
+        else:
+            min_path = ''
         return min_path
 
     def stream(self, conn_list, lat_snr_label):
@@ -304,24 +320,25 @@ class Network(object):
                 path = Network.find_best_snr(self, self._nodes[elem.input], self._nodes[elem.output])
 
             if len(path) != 0:  # There is almost a free path available
-                signal_information = SignalInformation(1, path)
-                signal_information = Network.propagate(self, signal_information)
+                # signal_information = SignalInformation(1, path)
+                # signal_information = Network.propagate(self, signal_information)
                 lightpath = Lightpath(1, path)  # suppose channel 0
-                stream_propagate(lightpath, self._lines)
+                stream_propagate(lightpath, self._lines, self._route_space)
                 """
-                Consider pair of consecutive nodel in the current path. run stream_propagate()
-                anditerate until all  node are explot
+                Consider pair of consecutive node in the current path. run stream_propagate()
+                and iterate until all node are explot
                 check the first channel available
                 occupy that channel. setting line.state[n_ch]= occupy
+                Update the route space
                 send lightpath
                 """
 
                 if lat_snr_label == 'latency':  # If check for latency
-                    elem.latency = signal_information.latency
+                    elem.latency = lightpath.latency
                 elif lat_snr_label == 'snr':
-                    elem.snr = 10 * np.log10(signal_information.signal_power / signal_information.noise_power)
-            else:
-                elem.latency = None
+                    elem.snr = 10 * np.log10(lightpath.signal_power / lightpath.noise_power)
+            else:  # no free path available
+                elem.latency = 0
                 elem.snr = 0
 
 
