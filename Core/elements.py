@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.constants import c
-from Core.utils import stream_propagate
+from Core.utils import stream_propagate, update_route_space
+from Core.parameters import *
 
 
 ###################################################################
@@ -83,6 +84,7 @@ class Node(object):
         self._position = node_dic['position']
         self._connected_nodes = node_dic['connected_nodes']
         self._successive = {}
+        self._switching_matrix = None
 
     @property
     def label(self):
@@ -104,6 +106,13 @@ class Node(object):
     def successive(self, successive):
         self._successive = successive
 
+    @property
+    def switching_matrix(self):
+        return self._switching_matrix
+
+    def set_node_switching_matrix(self, matrix):
+        self._switching_matrix = matrix
+
     def propagate(self, signal_information):
         path = signal_information.path
         if len(path) > 1:
@@ -122,8 +131,9 @@ class Line(object):
         self._label = line_dict['label']
         self._length = line_dict['length']
         self._successive = {}
-        self._state = ['free', 'free', 'free', 'free', 'free',
-                       'free', 'free', 'free', 'free', 'free']  # list of 10 channels indicating 'free' or 'occupied'
+        # self._state = ['free', 'free', 'free', 'free', 'free',
+        #                'free', 'free', 'free', 'free', 'free']  # list of 10 channels indicating 'free' or 'occupied'
+        self._state = np.ones(n_ch,int)  # list of 10 channel free
 
     @property
     def label(self):
@@ -176,6 +186,7 @@ class Network(object):
         self._lines = {}  # Dict of Line
         self._weighted_paths = pd.DataFrame()
         self._route_space = pd.DataFrame()
+        # self._static_switch_mtx = {}  # complete switching network
 
         routing_state = []  # state of each path for the routing space
         routing_index = []  # path for the routing space
@@ -185,7 +196,7 @@ class Network(object):
             node_dict['label'] = node_label
             node = Node(node_dict)
             self._nodes[node_label] = node
-            # Create the line instances
+            # Create the line    instances
             for connected_node_label in node_dict['connected_nodes']:
                 line_dict = {}
                 line_label = node_label + connected_node_label
@@ -201,16 +212,24 @@ class Network(object):
         self._route_space = pd.DataFrame(routing_state, routing_index)  # Route space data frame
 
     @property
-    def weighted_paths(self):
-        return self._weighted_paths
-
-    @property
     def nodes(self):
         return self._nodes
 
     @property
     def lines(self):
         return self._lines
+
+    @property
+    def weighted_paths(self):
+        return self._weighted_paths
+
+    @property
+    def route_space(self):
+        return self._route_space
+
+    # @property
+    # def static_switch_mtx(self):
+    #     return self._static_switch_mtx
 
     def draw(self):
         nodes = self.nodes
@@ -248,13 +267,25 @@ class Network(object):
     def connect(self):
         nodes_dict = self.nodes
         lines_dict = self.lines
+        # Define also the switching_matrix for each node
         for node_label in nodes_dict:
             node = nodes_dict[node_label]
+            switch_mtx = {}  # static switch matrix of each node
             for connected_node in node.connected_nodes:
                 line_label = node_label + connected_node
                 line = lines_dict[line_label]
                 line.successive[connected_node] = nodes_dict[connected_node]
                 node.successive[line_label] = lines_dict[line_label]
+
+                switch_conn_node = {}
+                for sub_connected_node in node.connected_nodes:
+                    if sub_connected_node == connected_node:
+                        switch_conn_node[sub_connected_node] = np.zeros(n_ch, int)
+                    else:
+                        switch_conn_node[sub_connected_node] = np.ones(n_ch, int)
+                switch_mtx[connected_node] = switch_conn_node
+            self._nodes[node_label].set_node_switching_matrix(switch_mtx)
+        # self._static_switch_mtx = switch_mtx  # static switch matrix
 
     def propagate(self, signal_information):
         path = signal_information.path
@@ -278,7 +309,7 @@ class Network(object):
             flag_state = 'true'  # the path is available
             for i in range(len(row) - 1):
                 label = row[i] + row[i + 1]  # label of consecutive two nodes
-                if 'free' not in self._route_space.loc[label].values:  # check in the routing space
+                if free not in self._route_space.loc[label].values:  # check in the routing space
                     flag_state = 'false'
             if flag_state == 'true':
                 path_list.append(row)
@@ -299,7 +330,7 @@ class Network(object):
             flag_state = 'true'  # the path is available
             for i in range(len(row) - 1):
                 label = row[i] + row[i + 1]  # label of consecutive two nodes
-                if 'free' not in self._route_space.loc[label].values:  # check in the routing space
+                if free not in self._route_space.loc[label].values:  # check in the routing space
                     flag_state = 'false'  # there is no available channel
             if flag_state == 'true':
                 path_list.append(row)
@@ -322,9 +353,15 @@ class Network(object):
             if len(path) != 0:  # There is almost a free path available
                 # signal_information = SignalInformation(1, path)
                 # signal_information = Network.propagate(self, signal_information)
-                lightpath = Lightpath(1, path)  # suppose channel 0
-                stream_propagate(lightpath, self._lines, self._route_space)
+                lightpath = Lightpath(1, path)
+                # stream_propagate(lightpath, self._lines, self._route_space)
+                # Update routing space accordinr lab6
+                stream_propagate(lightpath, self._lines)
+                self._route_space = update_route_space(self._route_space, self._nodes, self._lines, path)
+                # print(self._route_space)
                 """
+                0 -> Occupied
+                1 -> Free
                 Consider pair of consecutive node in the current path. run stream_propagate()
                 and iterate until all node are explot
                 check the first channel available
