@@ -7,6 +7,7 @@ from Core.elements import Connection
 #  network.set_weighted_paths(n_paths, latencies, noises, snrs)  # Instance weighted graph
 
 con_dict = []
+# random connection
 for i in range(100):
     i_node = random.choice(list(network.nodes))  # Random input node
     o_node = random.choice(list(network.nodes))  # Random output node
