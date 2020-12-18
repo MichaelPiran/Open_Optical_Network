@@ -133,7 +133,7 @@ class Line(object):
         self._successive = {}
         # self._state = ['free', 'free', 'free', 'free', 'free',
         #                'free', 'free', 'free', 'free', 'free']  # list of 10 channels indicating 'free' or 'occupied'
-        self._state = np.ones(n_ch,int)  # list of 10 channel free
+        self._state = np.ones(n_ch, int)  # list of 10 channel free
 
     @property
     def label(self):
@@ -186,7 +186,7 @@ class Network(object):
         self._lines = {}  # Dict of Line
         self._weighted_paths = pd.DataFrame()
         self._route_space = pd.DataFrame()
-        # self._static_switch_mtx = {}  # complete switching network
+        self._static_switch_mtx = {}  # complete switching network from file
 
         routing_state = []  # state of each path for the routing space
         routing_index = []  # path for the routing space
@@ -208,6 +208,16 @@ class Network(object):
                 routing_state.append(line.state)
                 routing_index.append(line_label)
                 self._lines[line_label] = line
+
+            new_switch_mtx = {}
+            for i_node in node_dict['switching_matrix'].keys():
+                possible_o_node = node_dict['switching_matrix'].get(i_node)
+                new_switch_mtx[i_node] = possible_o_node
+                for o_node in possible_o_node.keys():
+                    resized_nch = node_dict['switching_matrix'].get(i_node).get(o_node)[:n_ch]
+                    new_switch_mtx[i_node][o_node] = resized_nch
+            # store static switching matrix of whole network. Take only the wanted n of channel
+            self._static_switch_mtx[node_label] = new_switch_mtx
         # Define the route space
         self._route_space = pd.DataFrame(routing_state, routing_index)  # Route space data frame
 
@@ -223,13 +233,48 @@ class Network(object):
     def weighted_paths(self):
         return self._weighted_paths
 
+    def set_weighted_paths(self):
+        node_labels = self._nodes.keys()  # A,B,C,D;E,F
+        pairs = []
+        for label1 in node_labels:
+            for label2 in node_labels:
+                if label1 != label2:
+                    pairs.append(label1 + label2)
+        df = pd.DataFrame()
+        paths = []
+        n_paths = []  # paths without '->'
+        latencies = []
+        noises = []
+        snrs = []
+        for pair in pairs:
+            for path in Network.find_paths(self, pair[0], pair[1]):
+                n_paths.append(path)  # normal path without ->
+                path_string = ''
+                for node in path:
+                    path_string += node + '->'
+                paths.append(path_string[: -2])
+                # Propagation
+                signal_information = SignalInformation(1, path)
+                signal_information = Network.propagate(self, signal_information)
+                latencies.append(signal_information.latency)
+                noises.append(signal_information.noise_power)
+                snrs.append(10 * np.log10(signal_information.signal_power / signal_information.noise_power))
+        df['path'] = paths
+        df['latency'] = latencies
+        df['noise'] = noises
+        df['snr'] = snrs
+        self._weighted_paths['path'] = n_paths
+        self._weighted_paths['latency'] = latencies
+        self._weighted_paths['noise'] = noises
+        self._weighted_paths['snr'] = snrs
+
     @property
     def route_space(self):
         return self._route_space
 
-    # @property
-    # def static_switch_mtx(self):
-    #     return self._static_switch_mtx
+    @property
+    def static_switch_mtx(self):
+        return self._static_switch_mtx
 
     def draw(self):
         nodes = self.nodes
@@ -270,34 +315,18 @@ class Network(object):
         # Define also the switching_matrix for each node
         for node_label in nodes_dict:
             node = nodes_dict[node_label]
-            switch_mtx = {}  # static switch matrix of each node
             for connected_node in node.connected_nodes:
                 line_label = node_label + connected_node
                 line = lines_dict[line_label]
                 line.successive[connected_node] = nodes_dict[connected_node]
                 node.successive[line_label] = lines_dict[line_label]
-
-                switch_conn_node = {}
-                for sub_connected_node in node.connected_nodes:
-                    if sub_connected_node == connected_node:
-                        switch_conn_node[sub_connected_node] = np.zeros(n_ch, int)
-                    else:
-                        switch_conn_node[sub_connected_node] = np.ones(n_ch, int)
-                switch_mtx[connected_node] = switch_conn_node
-            self._nodes[node_label].set_node_switching_matrix(switch_mtx)
-        # self._static_switch_mtx = switch_mtx  # static switch matrix
+            self._nodes[node_label].set_node_switching_matrix(self._static_switch_mtx[node_label])
 
     def propagate(self, signal_information):
         path = signal_information.path
         start_node = self.nodes[path[0]]
         propagated_signal_information = start_node.propagate(signal_information)
         return propagated_signal_information
-
-    def set_weighted_paths(self, paths, latencies, noises, snrs):  # Create the weighted graph
-        self._weighted_paths['path'] = paths
-        self._weighted_paths['latency'] = latencies
-        self._weighted_paths['noise'] = noises
-        self._weighted_paths['snr'] = snrs
 
     def find_best_snr(self, i_node, o_node):  # Find path with higher snr between two node
         path_list = []
@@ -343,6 +372,11 @@ class Network(object):
         return min_path
 
     def stream(self, conn_list, lat_snr_label):
+        """
+        1 - Propagate the line, update the state
+        2 - Propagate the node, update switching matrices
+        3 - Update the routing space
+        """
         path = []
         for elem in conn_list:  # Check all connection istance
             if lat_snr_label == 'latency':  # If check for latency
@@ -351,23 +385,19 @@ class Network(object):
                 path = Network.find_best_snr(self, self._nodes[elem.input], self._nodes[elem.output])
 
             if len(path) != 0:  # There is almost a free path available
-                # signal_information = SignalInformation(1, path)
-                # signal_information = Network.propagate(self, signal_information)
                 lightpath = Lightpath(1, path)
-                # stream_propagate(lightpath, self._lines, self._route_space)
-                # Update routing space accordinr lab6
+                # update state of each line
                 stream_propagate(lightpath, self._lines)
+                # update switching matrix
+                # update routing space
                 self._route_space = update_route_space(self._route_space, self._nodes, self._lines, path)
-                # print(self._route_space)
                 """
                 0 -> Occupied
                 1 -> Free
                 Consider pair of consecutive node in the current path. run stream_propagate()
-                and iterate until all node are explot
-                check the first channel available
+                and iterate until all node are explot. check the first channel available
                 occupy that channel. setting line.state[n_ch]= occupy
-                Update the route space
-                send lightpath
+                Update the route space.                 send lightpath
                 """
 
                 if lat_snr_label == 'latency':  # If check for latency
@@ -420,93 +450,3 @@ class Connection(object):
 
 
 #############################################################
-
-# def main():
-#     network = Network('nodes.json')
-#
-#     network.connect()
-#     node_labels = network.nodes.keys()  # A,B,C,D;E,F
-#     pairs = []
-#     for label1 in node_labels:
-#         for label2 in node_labels:
-#             if label1 != label2:
-#                 pairs.append(label1 + label2)
-#     # columns = ['path', 'latency', 'noise', 'snr']
-#     df = pd.DataFrame()
-#     paths = []
-#     n_paths = []  # paths without '->'
-#     latencies = []
-#     noises = []
-#     snrs = []
-#     for pair in pairs:
-#         for path in network.find_paths(pair[0], pair[1]):
-#             n_paths.append(path)
-#             path_string = ''
-#             for node in path:
-#                 path_string += node + '->'
-#             paths.append(path_string[: -2])
-#             # Propagation
-#             signal_information = SignalInformation(1, path)
-#             signal_information = network.propagate(signal_information)
-#             latencies.append(signal_information.latency)
-#             noises.append(signal_information.noise_power)
-#             snrs.append(
-#                 10 * np.log10(
-#                     signal_information.signal_power / signal_information.noise_power
-#                 )
-#             )
-#     df['path'] = paths
-#     df['latency'] = latencies
-#     df['noise'] = noises
-#     df['snr'] = snrs
-#
-#     # Es1 lab4
-#     network.set_weighted_paths(n_paths, latencies, noises, snrs)  # Instance weighted graph
-
-    # Es2 lab4
-    # snr_custom_nodes = network.find_best_snr(network.nodes['C'], network.nodes['A'])  # Search for path with bst snr
-    # print('Path with best snr between the two input nodes is: ', snr_custom_nodes)
-
-    # Es3 lab4
-    # lat_custom_nodes = network.find_best_latency(network.nodes['C'], network.nodes['A'])  # Search bst snr
-    # print('Path with best latency between the two input nodes is: ', lat_custom_nodes)
-    # Es5 lab4
-
-    # con1 = Connection({'input': 'E', 'output': 'B', 'signal_power': 1})
-    # con2 = Connection({'input': 'B', 'output': 'D', 'signal_power': 1})
-    # con3 = Connection({'input': 'C', 'output': 'A', 'signal_power': 1})
-    # con4 = Connection({'input': 'A', 'output': 'C', 'signal_power': 1})
-    # con_dict = [con1, con2, con3, con4]
-    # network.stream(con_dict, 'snr')   # Latency or snr
-
-    # Es6 lab4
-    # con_dict = []
-    # for i in range(100):
-    #     i_node = random.choice(list(network.nodes))  # Random input node
-    #     o_node = random.choice(list(network.nodes))  # Random output node
-    #     while i_node == o_node:   # Output node must be different from input ones
-    #         o_node = random.choice(list(network.nodes))
-    #     con_dict.append(Connection({'input': i_node, 'output': o_node, 'signal_power': 1}))
-    # network.stream(con_dict, 'latency')
-    # network.stream(con_dict, 'snr')
-    # lbl_axes = []
-    # lat_axes = []
-    # snr_axes = []
-    # for i in range(100):
-    #     lbl_axes.append(con_dict[i].input + con_dict[i].output)
-    #     lat_axes.append(con_dict[i].latency)
-    #     snr_axes.append(con_dict[i].snr)
-    # plt.figure(figsize=(9, 3))
-    # plt.subplot(121)
-    # plt.bar(lbl_axes, lat_axes)  # latency distribution
-    # plt.ylabel('latency')
-    # plt.subplot(122)
-    # plt.bar(lbl_axes, snr_axes)  # snr distribution
-    # plt.ylabel('snr')
-    # plt.show()
-
-    # Es7 lab4
-
-
-# if __name__ == "__main__":
-#     main()
