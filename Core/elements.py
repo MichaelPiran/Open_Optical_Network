@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.constants import c
-from Core.utils import stream_propagate, update_route_space
+from Core.utils import update_route_space, set_static_switch_mtx
 from Core.parameters import *
 
 
@@ -62,6 +62,7 @@ class Lightpath(SignalInformation):
     def __init__(self, power, path):
         super().__init__(power, path)
         self._channel = 0  # Indicate which frequency slot the signal occupy
+        self._previous_node = 'empty'
 
     @property
     def channel(self):
@@ -70,21 +71,24 @@ class Lightpath(SignalInformation):
     def set_channel(self, channel):
         self._channel = channel
 
+    @property
+    def previous_node(self):
+        return self._previous_node
+
+    def set_previous_node(self, p_node):
+        self._previous_node = p_node
+
 
 ###################################################################
 
 
 class Node(object):
     def __init__(self, node_dic):
-        """"
-        input_node_dic = {'label': string , 'position ' : tuple(float,float), 'connected_nodes': list[string],
-                    'successive': dict[Line]}
-        """
         self._label = node_dic['label']
         self._position = node_dic['position']
         self._connected_nodes = node_dic['connected_nodes']
         self._successive = {}
-        self._switching_matrix = None
+        self._switching_matrix = {}
 
     @property
     def label(self):
@@ -113,14 +117,61 @@ class Node(object):
     def set_node_switching_matrix(self, matrix):
         self._switching_matrix = matrix
 
-    def propagate(self, signal_information):
-        path = signal_information.path
+    def propagate(self, signal):
+        path = signal.path
         if len(path) > 1:
             line_label = path[:2]
             line = self.successive[line_label]
-            signal_information.next()
-            signal_information = line.propagate(signal_information)  # Call successive element propagate method
-        return signal_information
+            """ 
+            Check if we are propagating a Lightpath o a SignalInformation.
+            If the former:
+                -Check free channel
+                -Occupy the line state
+                -Update switching matrix
+            """
+            if hasattr(signal, 'channel'):
+                # Node propagate Lightpath
+                free_channel = signal.channel
+                line.state[free_channel] = occupied  # occupy the channel
+
+                flag_availability = 'true'
+                if signal.previous_node != 'empty':
+                    # Update switching matrix of the node
+                    mtx_node = self.switching_matrix
+                    sw_mtx_position = mtx_node[signal.previous_node][line_label[1]]
+                    if free_channel - 1 >= 0:  # Occupy previous channel
+                        if sw_mtx_position[free_channel-1] == free:
+                            # self._switching_matrix[signal.previous_node][line_label[1]][free_channel-1] = occupied
+                            mtx_node[signal.previous_node][line_label[1]][free_channel - 1] = occupied
+                            self.set_node_switching_matrix(mtx_node)
+                        else:
+                            flag_availability = 'false'
+
+                    if sw_mtx_position[free_channel] == free:
+                        # self._switching_matrix[signal.previous_node][line_label[1]][free_channel] = occupied
+                        mtx_node[signal.previous_node][line_label[1]][free_channel] = occupied
+                        self.set_node_switching_matrix(mtx_node)
+                    else:
+                        flag_availability = 'false'
+
+                    if free_channel + 1 < n_ch:  # Occupy next channel
+                        if sw_mtx_position[free_channel+1] == free:
+                            # self._switching_matrix[signal.previous_node][line_label[1]][free_channel + 1] = occupied
+                            mtx_node[signal.previous_node][line_label[1]][free_channel + 1] = occupied
+                            self.set_node_switching_matrix(mtx_node)
+                        else:
+                            flag_availability = 'false'
+                # can block channel and its neighbourghs
+                if flag_availability == 'true':
+                    signal.set_previous_node(path[0])  # update previous node of the lightpath
+                    signal.next()
+                    signal = line.propagate(signal)  # Call successive element propagate method
+            else:
+                # Node propagate SignalInformation
+                signal.next()
+                signal = line.propagate(signal)  # Call successive element propagate method
+
+        return signal
 
 
 ####################################################################
@@ -163,17 +214,17 @@ class Line(object):
         noise = 1e-3 * signal_power * self.length
         return noise
 
-    def propagate(self, signal_information):
+    def propagate(self, signal):
         latency = self.latency_generation()
-        signal_information.add_latency(latency)
+        signal.add_latency(latency)
 
-        signal_power = signal_information.signal_power
+        signal_power = signal.signal_power
         noise = self.noise_generation(signal_power)
-        signal_information.add_noise(noise)
+        signal.add_noise(noise)
 
-        node = self.successive[signal_information.path[0]]
-        signal_information = node.propagate(signal_information)  # Call successive element propagate method
-        return signal_information
+        node = self.successive[signal.path[0]]
+        signal = node.propagate(signal)  # Call successive element propagate method
+        return signal
 
 
 ##################################################################
@@ -208,16 +259,8 @@ class Network(object):
                 routing_state.append(line.state)
                 routing_index.append(line_label)
                 self._lines[line_label] = line
-
-            new_switch_mtx = {}
-            for i_node in node_dict['switching_matrix'].keys():
-                possible_o_node = node_dict['switching_matrix'].get(i_node)
-                new_switch_mtx[i_node] = possible_o_node
-                for o_node in possible_o_node.keys():
-                    resized_nch = node_dict['switching_matrix'].get(i_node).get(o_node)[:n_ch]
-                    new_switch_mtx[i_node][o_node] = resized_nch
             # store static switching matrix of whole network. Take only the wanted n of channel
-            self._static_switch_mtx[node_label] = new_switch_mtx
+            self._static_switch_mtx[node_label] = set_static_switch_mtx(node_dict)
         # Define the route space
         self._route_space = pd.DataFrame(routing_state, routing_index)  # Route space data frame
 
@@ -320,91 +363,115 @@ class Network(object):
                 line = lines_dict[line_label]
                 line.successive[connected_node] = nodes_dict[connected_node]
                 node.successive[line_label] = lines_dict[line_label]
-            self._nodes[node_label].set_node_switching_matrix(self._static_switch_mtx[node_label])
+            node.set_node_switching_matrix(self._static_switch_mtx[node_label])
 
-    def propagate(self, signal_information):
-        path = signal_information.path
+    def propagate(self, signal):
+        path = signal.path
         start_node = self.nodes[path[0]]
-        propagated_signal_information = start_node.propagate(signal_information)
-        return propagated_signal_information
+        propagated_signal = start_node.propagate(signal)
+        return propagated_signal
 
-    def find_best_snr(self, i_node, o_node):  # Find path with higher snr between two node
+    def find_best_snr(self, path_struc):  # Find path with higher snr between two node
         path_list = []
         snr_list = []
-        for path in Network.find_paths(self, i_node.label, o_node.label):  # Retrieve all paths
+        max_path = {}
+        for path in path_struc.keys():  # Retrieve all paths
             row_df = self._weighted_paths.loc[self._weighted_paths['path'] == path]
             row = row_df['path'].values[0]
-            # If the line between each node is occupied don't consider it
-            flag_state = 'true'  # the path is available
-            for i in range(len(row) - 1):
-                label = row[i] + row[i + 1]  # label of consecutive two nodes
-                if free not in self._route_space.loc[label].values:  # check in the routing space
-                    flag_state = 'false'
-            if flag_state == 'true':
-                path_list.append(row)
-                snr_list.append(row_df['snr'].values[0])
-        if len(snr_list) > 0:    # if snr list is empy
-            max_path = path_list[snr_list.index(max(snr_list))]
+            snr_list.append(row_df['snr'].values[0])
+            path_list.append(row)
+        if len(path_struc) > 1:
+            path = path_list[snr_list.index(max(snr_list))]
+            max_path[path] = path_struc[path]
         else:
-            max_path = ''
+            max_path = path_struc
         return max_path
 
-    def find_best_latency(self, i_node, o_node):  # Find path with lower latency between two node
-        path_list = []
+    def find_best_latency(self, path_struc):  # Find path with lower latency between two node
         lat_list = []
-        for path in Network.find_paths(self, i_node.label, o_node.label):  # Retrieve all paths
+        path_list = []
+        min_path = {}
+        for path in path_struc.keys():  # Retrieve all paths
             row_df = self._weighted_paths.loc[self._weighted_paths['path'] == path]
             row = row_df['path'].values[0]
-            # If the line between each node is occupied don't consider it
-            flag_state = 'true'  # the path is available
-            for i in range(len(row) - 1):
-                label = row[i] + row[i + 1]  # label of consecutive two nodes
-                if free not in self._route_space.loc[label].values:  # check in the routing space
-                    flag_state = 'false'  # there is no available channel
-            if flag_state == 'true':
-                path_list.append(row)
-                lat_list.append(row_df['latency'].values[0])
-
-        if len(lat_list) > 0:  # if latency list is empy
-            min_path = path_list[lat_list.index(min(lat_list))]
+            lat_list.append(row_df['latency'].values[0])
+            path_list.append(row)
+        if len(path_struc) > 1:
+            path = path_list[lat_list.index(min(lat_list))]
+            min_path[path] = path_struc[path]  # look the min
         else:
-            min_path = ''
+            min_path = path_struc
         return min_path
+
+    def availability(self, i_node, o_node):
+        """
+        Control the availability of a specific request
+        """
+        network_availability = {}
+        for path in Network.find_paths(self, i_node.label, o_node.label):  # find all possible path
+            ch_free = []
+            if len(path) > 2:  # the path has more than two nodes
+                for i in range(len(path)-1):
+                    label = path[i] + path[i + 1]  # span two nodes at time
+                    if i == 0:  # first node
+                        for j in range(n_ch):
+                            if self.lines[label].state[j] == free:
+                                ch_free.append(j)  # append all free channel
+                    else:
+                        x = self._nodes[path[i]].switching_matrix[path[i - 1]][path[i + 1]]
+                        for j in ch_free:  # look only the available
+                            if (self.lines[label].state[j] == occupied) or (x[j] == occupied):
+                                ch_free.remove(j)  # remove if no wavelenght continuity
+            else:  # Direct connection
+                for i in range(n_ch):
+                    if self.lines[path].state[i] == free:
+                        ch_free.append(i)  # append all free channel
+            if len(ch_free) > 0:
+                network_availability[path] = ch_free[0]  # first available channel
+        return network_availability
 
     def stream(self, conn_list, lat_snr_label):
         """
-        1 - Propagate the line, update the state
-        2 - Propagate the node, update switching matrices
-        3 - Update the routing space
+        1 - Check availability
+        2 - Propagate the line, update the state
+        4 - Propagate the node, update switching matrices
+        5 - Update the routing space
         """
-        path = []
         for elem in conn_list:  # Check all connection istance
-            if lat_snr_label == 'latency':  # If check for latency
-                path = Network.find_best_latency(self, self._nodes[elem.input], self._nodes[elem.output])
-            elif lat_snr_label == 'snr':  # If check for snr
-                path = Network.find_best_snr(self, self._nodes[elem.input], self._nodes[elem.output])
+            # Check availability
+            path_ch = {}
 
-            if len(path) != 0:  # There is almost a free path available
+            possible_path = Network.availability(self, self._nodes[elem.input], self._nodes[elem.output])
+
+            if len(possible_path) != 0:  # There is almost a free path available
+                # Specific request is accepted
+                if lat_snr_label == 'latency':  # If check for latency
+                    path_ch = Network.find_best_latency(self, possible_path)
+                elif lat_snr_label == 'snr':  # If check for snr
+                    path_ch = Network.find_best_snr(self, possible_path)
+                # deploy the lightpath and the channel dedicated
+                path = list(path_ch.keys())[0]  # retrieve path
+                channel = list(path_ch.values())[0]  # retrieve channel
+
                 lightpath = Lightpath(1, path)
-                # update state of each line
-                stream_propagate(lightpath, self._lines)
-                # update switching matrix
+                lightpath.set_channel(channel)
+                # stream_propagate(lightpath, self._lines)
+                start_node = self.nodes[path[0]]
+                lightpath = start_node.propagate(lightpath)
+
                 # update routing space
                 self._route_space = update_route_space(self._route_space, self._nodes, self._lines, path)
-                """
-                0 -> Occupied
-                1 -> Free
-                Consider pair of consecutive node in the current path. run stream_propagate()
-                and iterate until all node are explot. check the first channel available
-                occupy that channel. setting line.state[n_ch]= occupy
-                Update the route space.                 send lightpath
-                """
+                # restore node switching matrix
+                node_dic = json.load(open(file, 'r'))
+                for node_label in path:
+                    self._nodes[node_label].set_node_switching_matrix(node_dic[node_label]['switching_matrix'])
 
                 if lat_snr_label == 'latency':  # If check for latency
                     elem.latency = lightpath.latency
                 elif lat_snr_label == 'snr':
                     elem.snr = 10 * np.log10(lightpath.signal_power / lightpath.noise_power)
             else:  # no free path available
+                # Specific request is rejected
                 elem.latency = 0
                 elem.snr = 0
 

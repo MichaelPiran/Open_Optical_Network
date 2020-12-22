@@ -1,9 +1,10 @@
 """
 General function that we use in the code.
 """
-from scipy.constants import c
+# from scipy.constants import c
 import numpy as np
-from Core.parameters import  *
+from Core.parameters import *
+
 
 def channel_available(current_line):
     # the first channel free is choosen as comunication channel
@@ -18,27 +19,38 @@ def channel_available(current_line):
     return channel
 
 
-def stream_propagate(lightpath, lines):
-    # given a line between two nodes, propagate a lightpath
-    if len(lightpath.path) > 1:
-        line_label = lightpath.path[:2]  # consider two node at time
-        current_line = lines[line_label]  # select current line
-        length = current_line.length  # take lenght of that piece of line
-        latency = length / (c * 2 / 3)  # evaluate the latency
-        noise = 1e-3 * lightpath.signal_power * length  # evaluate the noise
-        lightpath.add_latency(latency)  # latency of lightpath
-        lightpath.add_noise(noise)  # noise of lightpath
+def set_static_switch_mtx(node_dict):
+    new_switch_mtx = {}
+    for i_node in node_dict['switching_matrix'].keys():
+        possible_o_node = node_dict['switching_matrix'].get(i_node)
+        new_switch_mtx[i_node] = possible_o_node
+        for o_node in possible_o_node.keys():
+            resized_nch = node_dict['switching_matrix'].get(i_node).get(o_node)[:n_ch]
+            new_switch_mtx[i_node][o_node] = resized_nch
+    return new_switch_mtx
 
-        free_channel = channel_available(current_line)  # select first channel available
-        # occupy the channel "line.state[n_ch]= occupy"
-        current_line.state[free_channel] = occupied
-        # update the routing space
-        # route_space.loc[line_label, free_channel] = 'occupied'  # update routing space
 
-        lightpath.set_channel(free_channel)
-        lightpath.next()  # consider next lightpath
-        lightpath = stream_propagate(lightpath, lines)  # Call successive element propagate method
-    return lightpath
+# def stream_propagate(lightpath, lines):
+#     # given a line between two nodes, propagate a lightpath
+#     if len(lightpath.path) > 1:
+#         line_label = lightpath.path[:2]  # consider two node at time
+#         current_line = lines[line_label]  # select current line
+#         length = current_line.length  # take lenght of that piece of line
+#         latency = length / (c * 2 / 3)  # evaluate the latency
+#         noise = 1e-3 * lightpath.signal_power * length  # evaluate the noise
+#         lightpath.add_latency(latency)  # latency of lightpath
+#         lightpath.add_noise(noise)  # noise of lightpath
+#
+#         free_channel = channel_available(current_line)  # select first channel available
+#         # occupy the channel "line.state[n_ch]= occupy"
+#         current_line.state[free_channel] = occupied
+#         # update the routing space
+#         # route_space.loc[line_label, free_channel] = 'occupied'  # update routing space
+#
+#         lightpath.set_channel(free_channel)
+#         lightpath.next()  # consider next lightpath
+#         lightpath = stream_propagate(lightpath, lines)  # Call successive element propagate method
+#     return lightpath
 
 
 def update_route_space(route_space, nodes, lines, path):

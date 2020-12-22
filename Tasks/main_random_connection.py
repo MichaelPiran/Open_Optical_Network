@@ -32,7 +32,7 @@ else:
     plt.bar(lbl_axes, snr_axes)  # snr distribution
     plt.ylabel('snr')
 plt.show()
-
+print('End lab4')
 # plt.subplot(121)
 # plt.bar(lbl_axes, lat_axes)  # latency distribution
 # plt.ylabel('latency')

@@ -18,3 +18,4 @@ for i in range(10):
 network.stream(con_dict, lat_snr)
 print('Route space:')
 print(network.route_space)
+print('End Lab6')
