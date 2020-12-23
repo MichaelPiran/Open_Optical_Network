@@ -2,6 +2,7 @@ import json
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy.special as sc
 from scipy.constants import c
 from Core.utils import update_route_space, set_static_switch_mtx
 from Core.parameters import *
@@ -89,6 +90,15 @@ class Node(object):
         self._connected_nodes = node_dic['connected_nodes']
         self._successive = {}
         self._switching_matrix = {}
+        self._transceiver = ''
+
+    @property
+    def transceiver(self):
+        return self._transceiver
+
+    @transceiver.setter
+    def transceiver(self, strategy):
+        self._transceiver = strategy
 
     @property
     def label(self):
@@ -114,7 +124,8 @@ class Node(object):
     def switching_matrix(self):
         return self._switching_matrix
 
-    def set_node_switching_matrix(self, matrix):
+    @switching_matrix.setter
+    def switching_matrix(self, matrix):
         self._switching_matrix = matrix
 
     def propagate(self, signal):
@@ -143,14 +154,14 @@ class Node(object):
                         if sw_mtx_position[free_channel-1] == free:
                             # self._switching_matrix[signal.previous_node][line_label[1]][free_channel-1] = occupied
                             mtx_node[signal.previous_node][line_label[1]][free_channel - 1] = occupied
-                            self.set_node_switching_matrix(mtx_node)
+                            self.switching_matrix = mtx_node
                         else:
                             flag_availability = 'false'
 
                     if sw_mtx_position[free_channel] == free:
                         # self._switching_matrix[signal.previous_node][line_label[1]][free_channel] = occupied
                         mtx_node[signal.previous_node][line_label[1]][free_channel] = occupied
-                        self.set_node_switching_matrix(mtx_node)
+                        self.switching_matrix = mtx_node
                     else:
                         flag_availability = 'false'
 
@@ -158,7 +169,7 @@ class Node(object):
                         if sw_mtx_position[free_channel+1] == free:
                             # self._switching_matrix[signal.previous_node][line_label[1]][free_channel + 1] = occupied
                             mtx_node[signal.previous_node][line_label[1]][free_channel + 1] = occupied
-                            self.set_node_switching_matrix(mtx_node)
+                            self.switching_matrix = mtx_node
                         else:
                             flag_availability = 'false'
                 # can block channel and its neighbourghs
@@ -211,7 +222,7 @@ class Line(object):
         return latency
 
     def noise_generation(self, signal_power):
-        noise = 1e-3 * signal_power * self.length
+        noise = 1e-9 * signal_power * self.length
         return noise
 
     def propagate(self, signal):
@@ -238,6 +249,7 @@ class Network(object):
         self._weighted_paths = pd.DataFrame()
         self._route_space = pd.DataFrame()
         self._static_switch_mtx = {}  # complete switching network from file
+        self._rejected_request = []
 
         routing_state = []  # state of each path for the routing space
         routing_index = []  # path for the routing space
@@ -261,6 +273,11 @@ class Network(object):
                 self._lines[line_label] = line
             # store static switching matrix of whole network. Take only the wanted n of channel
             self._static_switch_mtx[node_label] = set_static_switch_mtx(node_dict)
+            # Set node transceiver attribute
+            if 'transceiver' in node_dict:
+                self._nodes[node_label].transceiver = node_dict['transceiver']
+            else:
+                self._nodes[node_label].transceiver = 'fixed-rate'
         # Define the route space
         self._route_space = pd.DataFrame(routing_state, routing_index)  # Route space data frame
 
@@ -319,6 +336,10 @@ class Network(object):
     def static_switch_mtx(self):
         return self._static_switch_mtx
 
+    @property
+    def rejected_request(self):
+        return self._rejected_request
+
     def draw(self):
         nodes = self.nodes
         for node_label in nodes:
@@ -363,7 +384,7 @@ class Network(object):
                 line = lines_dict[line_label]
                 line.successive[connected_node] = nodes_dict[connected_node]
                 node.successive[line_label] = lines_dict[line_label]
-            node.set_node_switching_matrix(self._static_switch_mtx[node_label])
+            node.switching_matrix = self._static_switch_mtx[node_label]
 
     def propagate(self, signal):
         path = signal.path
@@ -438,10 +459,18 @@ class Network(object):
         5 - Update the routing space
         """
         for elem in conn_list:  # Check all connection istance
-            # Check availability
             path_ch = {}
-
-            possible_path = Network.availability(self, self._nodes[elem.input], self._nodes[elem.output])
+            br_array = {}
+            possible_path = {}
+            # Check availability
+            general_path = Network.availability(self, self._nodes[elem.input], self._nodes[elem.output])
+            # Evaluate bit-rate
+            for p_key in general_path.keys():
+                strategy = self._nodes[p_key[0]].transceiver
+                bit_rate = Network.calculate_bit_rate(self, p_key, strategy)
+                if bit_rate > 0:  # consider the path with bit_rate > 0
+                    possible_path[p_key] = general_path[p_key]
+                    br_array[p_key] = bit_rate
 
             if len(possible_path) != 0:  # There is almost a free path available
                 # Specific request is accepted
@@ -449,13 +478,14 @@ class Network(object):
                     path_ch = Network.find_best_latency(self, possible_path)
                 elif lat_snr_label == 'snr':  # If check for snr
                     path_ch = Network.find_best_snr(self, possible_path)
-                # deploy the lightpath and the channel dedicated
                 path = list(path_ch.keys())[0]  # retrieve path
                 channel = list(path_ch.values())[0]  # retrieve channel
+                elem.bit_rate = br_array[path]  # Assign bit rate to connection element
 
+                # deploy the lightpath and the channel dedicated
                 lightpath = Lightpath(1, path)
                 lightpath.set_channel(channel)
-                # stream_propagate(lightpath, self._lines)
+
                 start_node = self.nodes[path[0]]
                 lightpath = start_node.propagate(lightpath)
 
@@ -464,7 +494,7 @@ class Network(object):
                 # restore node switching matrix
                 node_dic = json.load(open(file, 'r'))
                 for node_label in path:
-                    self._nodes[node_label].set_node_switching_matrix(node_dic[node_label]['switching_matrix'])
+                    self._nodes[node_label].switching_matrix = node_dic[node_label]['switching_matrix']
 
                 if lat_snr_label == 'latency':  # If check for latency
                     elem.latency = lightpath.latency
@@ -472,8 +502,34 @@ class Network(object):
                     elem.snr = 10 * np.log10(lightpath.signal_power / lightpath.noise_power)
             else:  # no free path available
                 # Specific request is rejected
+                self._rejected_request.append(elem)
                 elem.latency = 0
                 elem.snr = 0
+
+    def calculate_bit_rate(self, path, strategy):
+        row_df = self._weighted_paths.loc[self._weighted_paths['path'] == path]
+        gsnr = row_df['snr'].values[0]
+        rb = 0
+        # 1 fixed-rate
+        if strategy == 'fixed_rate':
+            if gsnr >= 2*(sc.erfcinv(2*BERt)**2)*(Rs/Bn):
+                rb = 100e9  # Bit-rate 100Gbps
+            else:
+                rb = 0
+        # 2 flex-rate
+        if strategy == 'flex_rate':
+            if gsnr < 2*(2*BERt)*(Rs/Bn):
+                rb = 0
+            if (gsnr >= 2*(sc.erfcinv(2*BERt)**2)*(Rs/Bn)) and (gsnr < (14/3)*(sc.erfcinv((3/2)*BERt)**2)*(Rs/Bn)):
+                rb = 100e9  # Rb = 100Gbps
+            if (gsnr >= (14/3)*(sc.erfcinv((3/2)*BERt)**2)*(Rs/Bn)) and (gsnr < 10*(sc.erfcinv((8/2)*BERt)**2)*(Rs/Bn)):
+                rb = 200e9  # Rb = 200Gbps
+            if gsnr >= 10*(sc.erfcinv((8/2)*BERt)**2)*(Rs/Bn):
+                rb = 400e9  # Rb = 400Gbps
+        # 3 shannon
+        if strategy == 'shannon':
+            rb = 2*Rs*np.log2(1+gsnr*(Bn/Rs))*1e9
+        return rb
 
 
 #############################################################
@@ -486,6 +542,7 @@ class Connection(object):
         self._signal_power = conn_dict['signal_power']
         self._latency = 0.0
         self._snr = 0.0
+        self._bit_rate = 0
 
     @property
     def input(self):
@@ -514,6 +571,14 @@ class Connection(object):
     @snr.setter
     def snr(self, snr):
         self._snr = snr
+
+    @property
+    def bit_rate(self):
+        return self._bit_rate
+
+    @bit_rate.setter
+    def bit_rate(self, bit_rate):
+        self._bit_rate = bit_rate
 
 
 #############################################################
