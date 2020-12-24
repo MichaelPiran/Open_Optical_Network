@@ -3,9 +3,10 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.special as sc
-from scipy.constants import c
+from scipy.constants import c, Planck
 from Core.utils import update_route_space, set_static_switch_mtx
 from Core.parameters import *
+from Core.conversion import conv_db_to_linear, conv_kilo_to_unit
 
 
 ###################################################################
@@ -64,6 +65,8 @@ class Lightpath(SignalInformation):
         super().__init__(power, path)
         self._channel = 0  # Indicate which frequency slot the signal occupy
         self._previous_node = 'empty'
+        self._rs = Rs  # Simbol Rate
+        self._df = Df  # Frequency spacing between channel
 
     @property
     def channel(self):
@@ -78,6 +81,14 @@ class Lightpath(SignalInformation):
 
     def set_previous_node(self, p_node):
         self._previous_node = p_node
+
+    @property
+    def rs(self):
+        return self._rs
+
+    @property
+    def df(self):
+        return self._df
 
 
 ###################################################################
@@ -193,9 +204,14 @@ class Line(object):
         self._label = line_dict['label']
         self._length = line_dict['length']
         self._successive = {}
-        # self._state = ['free', 'free', 'free', 'free', 'free',
-        #                'free', 'free', 'free', 'free', 'free']  # list of 10 channels indicating 'free' or 'occupied'
-        self._state = np.ones(n_ch, int)  # list of 10 channel free
+        self._state = np.ones(n_ch, int)  # list of 10 channel 'free' or 'occupied'
+        self._n_amplifiers = np.ceil(line_dict['length']/conv_kilo_to_unit(80))  # one amplifier at each 80km
+        self._gain = conv_db_to_linear(16)  # G
+        self._noise_figure = conv_db_to_linear(3)  # NF
+        self._alpha = 0.2/(20*np.log10(np.exp(1))*conv_kilo_to_unit(1))  # [linear/m]  alpha = 0.2 dB/Km
+        # self._beta2_abs = 2.13e-26 * (1e24/conv_kilo_to_unit(1))  # [(s^2)/m] beta2_abs = 2.13e-26 (ps)^2/km
+        self._beta2_abs = 2.13e-26 * (1/conv_kilo_to_unit(1))
+        self._gamma = 1.27  # [(W m)^-1] gamma = 1.27 (W m)^-1
 
     @property
     def label(self):
@@ -217,6 +233,30 @@ class Line(object):
     def state(self, state):
         self._state = state
 
+    @property
+    def n_amplifiers(self):
+        return self._n_amplifiers
+
+    @property
+    def gain(self):
+        return self._gain
+
+    @property
+    def noise_figure(self):
+        return self._noise_figure
+
+    @property
+    def alpha(self):
+        return self._alpha
+
+    @property
+    def beta2_abs(self):
+        return self._beta2_abs
+
+    @property
+    def gamma(self):
+        return self._gamma
+
     def latency_generation(self):
         latency = self.length / (c * 2 / 3)
         return latency
@@ -236,6 +276,22 @@ class Line(object):
         node = self.successive[signal.path[0]]
         signal = node.propagate(signal)  # Call successive element propagate method
         return signal
+
+    def ase_generation(self):
+        return self._n_amplifiers * Planck * freq * Bn * self._noise_figure * (self._gain - 1)  # ASE
+
+    def nli_generation(self):
+        # eta_nli = 8e-9
+        # nli = 2e-7
+        p_ase = self.ase_generation()/self._n_amplifiers  # P_ASE
+        n_span = self._n_amplifiers - 1
+        # x1 = 0.5 * (np.pi**2) * self._beta2_abs * (Rs**2) * (1/self._alpha) * n_ch**(2*(Rs/Df))
+        # x2 = (self._gamma ** 2) / (4 * self._alpha * self._beta2_abs * (Rs ** 3))
+        # eta_nli = (16/(27 * np.pi)) * np.log10(x1) * x2
+        eta_nli = 8e-9
+        p_ch = (p_ase / (2 * eta_nli))**(1/3)
+        nli = eta_nli * n_span * (p_ch ** 3)
+        return nli
 
 
 ##################################################################
