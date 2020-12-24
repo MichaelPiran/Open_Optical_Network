@@ -208,10 +208,9 @@ class Line(object):
         self._n_amplifiers = np.ceil(line_dict['length']/conv_kilo_to_unit(80))  # one amplifier at each 80km
         self._gain = conv_db_to_linear(16)  # G
         self._noise_figure = conv_db_to_linear(3)  # NF
-        self._alpha = 0.2/(20*np.log10(np.exp(1))*conv_kilo_to_unit(1))  # [linear/m]  alpha = 0.2 dB/Km
-        # self._beta2_abs = 2.13e-26 * (1e24/conv_kilo_to_unit(1))  # [(s^2)/m] beta2_abs = 2.13e-26 (ps)^2/km
-        self._beta2_abs = 2.13e-26 * (1/conv_kilo_to_unit(1))
-        self._gamma = 1.27  # [(W m)^-1] gamma = 1.27 (W m)^-1
+        self._alpha = 0.2/(20*np.log10(np.exp(1))*conv_kilo_to_unit(1))  # alpha = 0.2 dB/Km
+        self._beta2_abs = 2.13e-26  # beta2_abs = 2.13e-26 (m*(Hz^2))^-1
+        self._gamma = 1.27e-3  # gamma = 1.27 (W m)^-1
 
     @property
     def label(self):
@@ -285,12 +284,11 @@ class Line(object):
         # nli = 2e-7
         p_ase = self.ase_generation()/self._n_amplifiers  # P_ASE
         n_span = self._n_amplifiers - 1
-        # x1 = 0.5 * (np.pi**2) * self._beta2_abs * (Rs**2) * (1/self._alpha) * n_ch**(2*(Rs/Df))
-        # x2 = (self._gamma ** 2) / (4 * self._alpha * self._beta2_abs * (Rs ** 3))
-        # eta_nli = (16/(27 * np.pi)) * np.log10(x1) * x2
-        eta_nli = 8e-9
+        x1 = 0.5 * (np.pi**2) * self._beta2_abs * (Rs**2) * (1/self._alpha) * n_ch**(2*(Rs/Df))
+        x2 = (self._gamma ** 2) / (4 * self._alpha * self._beta2_abs * (Rs ** 3))
+        eta_nli = (16/(27 * np.pi)) * np.log10(x1) * x2
         p_ch = (p_ase / (2 * eta_nli))**(1/3)
-        nli = eta_nli * n_span * (p_ch ** 3)
+        nli = eta_nli * n_span * (p_ch ** 3) * Bn
         return nli
 
 
