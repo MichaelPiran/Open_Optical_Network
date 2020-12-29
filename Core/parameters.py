@@ -12,9 +12,9 @@ folder = root/'Resources'
 # file = folder/'nodes.json'  # Obsolete
 # file = folder/'nodes_full.json'  # All path available in the switching matrices
 # file = folder/'nodes_not_full.json'  # Not all path available in the switching matrices
-file = folder/'nodes_full_fixed_rate.json'
+# file = folder/'nodes_full_fixed_rate.json'
 # file = folder/'nodes_full_flex_rate.json'
-# file = folder/'nodes_full_shannon.json'
+file = folder/'nodes_full_shannon.json'
 
 Rs = 32*(10**9)  # Symbol-rate of the lightpath : 32GHz
 Bn = 12.5*(10**9)  # Noise bandwidth : 12.5GHz

@@ -1,5 +1,6 @@
 import random
-from Core.elements import Connection, Line
+import matplotlib.pyplot as plt
+from Core.elements import Connection
 from Core.istance_network import *
 
 
@@ -13,4 +14,16 @@ for i in range(rnd_con):
         o_node = random.choice(list(network.nodes))
     con_dict.append(Connection({'input': i_node, 'output': o_node, 'signal_power': 1}))
 network.stream(con_dict, 'snr')  # run for the snr
-print('End lab9')
+lbl_axes = []
+rb_axes = []
+sum_rb = 0
+for i in range(rnd_con):
+    lbl_axes.append(con_dict[i].input + con_dict[i].output)
+    rb_axes.append(con_dict[i].bit_rate)
+    sum_rb += con_dict[i].bit_rate
+plt.figure(figsize=(9, 3))
+plt.bar(lbl_axes, rb_axes)  # snr distribution
+plt.ylabel('bit_rate')
+plt.show()
+print('The average bit rate is: ', sum_rb/rnd_con)
+print('End lab10')

@@ -144,6 +144,7 @@ class Node(object):
         if len(path) > 1:
             line_label = path[:2]
             line = self.successive[line_label]
+            line.optimal_launch_power = line.optimized_launch_power()  # Pch
             """ 
             Check if we are propagating a Lightpath o a SignalInformation.
             If the former:
@@ -211,6 +212,7 @@ class Line(object):
         self._alpha = 0.2/(20*np.log10(np.exp(1))*conv_kilo_to_unit(1))  # alpha = 0.2 dB/Km
         self._beta2_abs = 2.13e-26  # beta2_abs = 2.13e-26 (m*(Hz^2))^-1
         self._gamma = 1.27e-3  # gamma = 1.27 (W m)^-1
+        self._optimal_launch_power = 0
 
     @property
     def label(self):
@@ -256,40 +258,61 @@ class Line(object):
     def gamma(self):
         return self._gamma
 
+    @property
+    def optimal_launch_power(self):
+        return self._optimal_launch_power
+
+    @optimal_launch_power.setter
+    def optimal_launch_power(self, power):
+        self._optimal_launch_power = power
+
     def latency_generation(self):
         latency = self.length / (c * 2 / 3)
         return latency
 
-    def noise_generation(self, signal_power):
-        noise = 1e-9 * signal_power * self.length
+    def noise_generation(self):
+        # noise = 1e-9 * signal_power * self.length
+        ase = Line.ase_generation(self)
+        nli = Line.nli_generation(self)[1]
+        noise = ase + nli
         return noise
 
     def propagate(self, signal):
         latency = self.latency_generation()
         signal.add_latency(latency)
 
-        signal_power = signal.signal_power
-        noise = self.noise_generation(signal_power)
-        signal.add_noise(noise)
+        noise = self.noise_generation()
+        pch = Line.optimized_launch_power(self)
+        gsnr = pch / noise
+        signal.add_noise(1/gsnr)
 
         node = self.successive[signal.path[0]]
         signal = node.propagate(signal)  # Call successive element propagate method
         return signal
 
     def ase_generation(self):
-        return self._n_amplifiers * Planck * freq * Bn * self._noise_figure * (self._gain - 1)  # ASE
+        ase = self._n_amplifiers * Planck * freq * Bn * self._noise_figure * (self._gain - 1)  # ASE
+        return ase
 
     def nli_generation(self):
         # eta_nli = 8e-9
         # nli = 2e-7
-        p_ase = self.ase_generation()/self._n_amplifiers  # P_ASE
+        nli_struct = []
         n_span = self._n_amplifiers - 1
         x1 = 0.5 * (np.pi**2) * self._beta2_abs * (Rs**2) * (1/self._alpha) * n_ch**(2*(Rs/Df))
         x2 = (self._gamma ** 2) / (4 * self._alpha * self._beta2_abs * (Rs ** 3))
         eta_nli = (16/(27 * np.pi)) * np.log10(x1) * x2
-        p_ch = (p_ase / (2 * eta_nli))**(1/3)
+        p_ch = (self.ase_generation() / (2 * eta_nli))**(1/3)
         nli = eta_nli * n_span * (p_ch ** 3) * Bn
-        return nli
+        nli_struct.append(eta_nli)
+        nli_struct.append(nli)
+        return nli_struct
+
+    def optimized_launch_power(self):
+        p_ase = self.ase_generation()
+        eta_nli = self.nli_generation()[0]
+        optimal_launch_power = (p_ase/(2*eta_nli))**(1/3)  # Pch
+        return optimal_launch_power
 
 
 ##################################################################
@@ -372,7 +395,9 @@ class Network(object):
                 signal_information = Network.propagate(self, signal_information)
                 latencies.append(signal_information.latency)
                 noises.append(signal_information.noise_power)
-                snrs.append(10 * np.log10(signal_information.signal_power / signal_information.noise_power))
+                # snrs.append(10 * np.log10(signal_information.signal_power / signal_information.noise_power))
+                # snrs.append(signal_information.noise_power)
+                snrs.append(10 * np.log(signal_information.noise_power))
         df['path'] = paths
         df['latency'] = latencies
         df['noise'] = noises
@@ -514,34 +539,35 @@ class Network(object):
         """
         for elem in conn_list:  # Check all connection istance
             path_ch = {}
-            br_array = {}
-            possible_path = {}
+            lightpath = None
+            path = ''
             # Check availability
-            general_path = Network.availability(self, self._nodes[elem.input], self._nodes[elem.output])
-            # Evaluate bit-rate
-            for p_key in general_path.keys():
-                strategy = self._nodes[p_key[0]].transceiver
-                bit_rate = Network.calculate_bit_rate(self, p_key, strategy)
-                if bit_rate > 0:  # consider the path with bit_rate > 0
-                    possible_path[p_key] = general_path[p_key]
-                    br_array[p_key] = bit_rate
+            possible_path = Network.availability(self, self._nodes[elem.input], self._nodes[elem.output])
 
             if len(possible_path) != 0:  # There is almost a free path available
-                # Specific request is accepted
-                if lat_snr_label == 'latency':  # If check for latency
-                    path_ch = Network.find_best_latency(self, possible_path)
-                elif lat_snr_label == 'snr':  # If check for snr
-                    path_ch = Network.find_best_snr(self, possible_path)
-                path = list(path_ch.keys())[0]  # retrieve path
-                channel = list(path_ch.values())[0]  # retrieve channel
-                elem.bit_rate = br_array[path]  # Assign bit rate to connection element
+                bit_rate = -1  # default value
+                while (bit_rate <= 0) and (len(possible_path) > 0):
+                    if lat_snr_label == 'latency':  # If check for latency
+                        path_ch = Network.find_best_latency(self, possible_path)
+                    elif lat_snr_label == 'snr':  # If check for snr
+                        path_ch = Network.find_best_snr(self, possible_path)
+                    # print(path_ch)
+                    path = list(path_ch.keys())[0]  # retrieve path
+                    channel = list(path_ch.values())[0]  # retrieve channel
 
-                # deploy the lightpath and the channel dedicated
-                lightpath = Lightpath(1, path)
-                lightpath.set_channel(channel)
-
-                start_node = self.nodes[path[0]]
-                lightpath = start_node.propagate(lightpath)
+                    lightpath = Lightpath(1, path)  # deploy the lightpath
+                    lightpath.set_channel(channel)  # set the channel
+                    strategy = self._nodes[path[0]].transceiver
+                    # Evaluate bit-rate
+                    bit_rate = Network.calculate_bit_rate(self, lightpath, strategy)
+                    # print(bit_rate)
+                    if bit_rate <= 0:
+                        possible_path.pop(path, channel)
+                        self._rejected_request.append(path)  # consider as rejected request
+                    else:
+                        elem.bit_rate = bit_rate  # Assign bit rate to connection element
+                        start_node = self.nodes[path[0]]
+                        lightpath = start_node.propagate(lightpath)
 
                 # update routing space
                 self._route_space = update_route_space(self._route_space, self._nodes, self._lines, path)
@@ -560,29 +586,32 @@ class Network(object):
                 elem.latency = 0
                 elem.snr = 0
 
-    def calculate_bit_rate(self, path, strategy):
-        row_df = self._weighted_paths.loc[self._weighted_paths['path'] == path]
+    def calculate_bit_rate(self, lightpath, strategy):
+        row_df = self._weighted_paths.loc[self._weighted_paths['path'] == lightpath.path]
         gsnr = row_df['snr'].values[0]
+        # print('gsnr', gsnr)
         rb = 0
+        rs = lightpath.rs
         # 1 fixed-rate
         if strategy == 'fixed_rate':
-            if gsnr >= 2*(sc.erfcinv(2*BERt)**2)*(Rs/Bn):
+            if gsnr >= 2*(sc.erfcinv(2*BERt)**2)*(rs/Bn):
                 rb = 100e9  # Bit-rate 100Gbps
             else:
                 rb = 0
         # 2 flex-rate
         if strategy == 'flex_rate':
-            if gsnr < 2*(2*BERt)*(Rs/Bn):
+            if gsnr < 2*(2*BERt)*(rs/Bn):
                 rb = 0
-            if (gsnr >= 2*(sc.erfcinv(2*BERt)**2)*(Rs/Bn)) and (gsnr < (14/3)*(sc.erfcinv((3/2)*BERt)**2)*(Rs/Bn)):
+            if (gsnr >= 2*(sc.erfcinv(2*BERt)**2)*(rs/Bn)) and (gsnr < (14/3)*(sc.erfcinv((3/2)*BERt)**2)*(rs/Bn)):
                 rb = 100e9  # Rb = 100Gbps
-            if (gsnr >= (14/3)*(sc.erfcinv((3/2)*BERt)**2)*(Rs/Bn)) and (gsnr < 10*(sc.erfcinv((8/2)*BERt)**2)*(Rs/Bn)):
+            if (gsnr >= (14/3)*(sc.erfcinv((3/2)*BERt)**2)*(rs/Bn)) and (gsnr < 10*(sc.erfcinv((8/2)*BERt)**2)*(rs/Bn)):
                 rb = 200e9  # Rb = 200Gbps
-            if gsnr >= 10*(sc.erfcinv((8/2)*BERt)**2)*(Rs/Bn):
+            if gsnr >= 10*(sc.erfcinv((8/2)*BERt)**2)*(rs/Bn):
                 rb = 400e9  # Rb = 400Gbps
         # 3 shannon
         if strategy == 'shannon':
-            rb = 2*Rs*np.log2(1+gsnr*(Bn/Rs))*1e9
+            rb = 2*rs*np.log2(1+gsnr*(Bn/rs))*1e9
+        print(rb)
         return rb
 
 
