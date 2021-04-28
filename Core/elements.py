@@ -60,11 +60,11 @@ class SignalInformation(object):
 ###################################################################
 
 
-class Lightpath(SignalInformation):
+class Lightpath(SignalInformation):  # Eredith from class Siglan Information
     def __init__(self, power, path):
-        super().__init__(power, path)
+        super().__init__(power, path)  # to eredith also the method
         self._channel = 0  # Indicate which frequency slot the signal occupy
-        self._previous_node = 'empty'
+        self._previous_node = 'empty'  # indicate the previous node crossed by lightpath
         self._rs = Rs  # Simbol Rate
         self._df = Df  # Frequency spacing between channel
 
@@ -161,19 +161,19 @@ class Node(object):
                 if signal.previous_node != 'empty':
                     # Update switching matrix of the node
                     mtx_node = self.switching_matrix
-                    sw_mtx_position = mtx_node[signal.previous_node][line_label[1]]
+                    sw_mtx_position = mtx_node[signal.previous_node][line_label[1]]  # sw matrix to check free channel
                     if free_channel - 1 >= 0:  # Occupy previous channel
                         if sw_mtx_position[free_channel-1] == free:
                             # self._switching_matrix[signal.previous_node][line_label[1]][free_channel-1] = occupied
                             mtx_node[signal.previous_node][line_label[1]][free_channel - 1] = occupied
-                            self.switching_matrix = mtx_node
+                            self.switching_matrix = mtx_node  # update sw mtx
                         else:
                             flag_availability = 'false'
 
                     if sw_mtx_position[free_channel] == free:
                         # self._switching_matrix[signal.previous_node][line_label[1]][free_channel] = occupied
                         mtx_node[signal.previous_node][line_label[1]][free_channel] = occupied
-                        self.switching_matrix = mtx_node
+                        self.switching_matrix = mtx_node  # update sw mtx
                     else:
                         flag_availability = 'false'
 
@@ -181,7 +181,7 @@ class Node(object):
                         if sw_mtx_position[free_channel+1] == free:
                             # self._switching_matrix[signal.previous_node][line_label[1]][free_channel + 1] = occupied
                             mtx_node[signal.previous_node][line_label[1]][free_channel + 1] = occupied
-                            self.switching_matrix = mtx_node
+                            self.switching_matrix = mtx_node  # update sw mtx
                         else:
                             flag_availability = 'false'
                 # can block channel and its neighbourghs
@@ -189,6 +189,7 @@ class Node(object):
                     signal.set_previous_node(path[0])  # update previous node of the lightpath
                     signal.next()
                     signal = line.propagate(signal)  # Call successive element propagate method
+                    # otherwise loose the propagation
             else:
                 # Node propagate SignalInformation
                 signal.next()
@@ -209,7 +210,8 @@ class Line(object):
         self._n_amplifiers = np.ceil(line_dict['length']/conv_kilo_to_unit(80))  # one amplifier at each 80km
         self._gain = conv_db_to_linear(16)  # G
         self._noise_figure = conv_db_to_linear(3)  # NF
-        self._alpha = 0.2/(20*np.log10(np.exp(1))*conv_kilo_to_unit(1))  # alpha = 0.2 dB/Km
+        self._alpha = (pow(10, (0.2/20))) / 1000  # alpha = 0.2 dB/Km
+        # self._alpha = 0.2/(20*np.log10(np.exp(1))*conv_kilo_to_unit(1))  # alpha = 0.2 dB/Km
         self._beta2_abs = 2.13e-26  # beta2_abs = 2.13e-26 (m*(Hz^2))^-1
         self._gamma = 1.27e-3  # gamma = 1.27 (W m)^-1
         self._optimal_launch_power = 0
@@ -353,7 +355,7 @@ class Network(object):
             # Set node transceiver attribute
             if 'transceiver' in node_dict:
                 self._nodes[node_label].transceiver = node_dict['transceiver']
-            else:
+            else:  # default value
                 self._nodes[node_label].transceiver = 'fixed-rate'
         # Define the route space
         self._route_space = pd.DataFrame(routing_state, routing_index)  # Route space data frame
@@ -527,7 +529,7 @@ class Network(object):
                     if self.lines[path].state[i] == free:
                         ch_free.append(i)  # append all free channel
             if len(ch_free) > 0:
-                network_availability[path] = ch_free[0]  # first available channel
+                network_availability[path] = ch_free[0]  # choose the first available channel
         return network_availability
 
     def stream(self, conn_list, lat_snr_label):
@@ -571,7 +573,7 @@ class Network(object):
 
                 # update routing space
                 self._route_space = update_route_space(self._route_space, self._nodes, self._lines, path)
-                # restore node switching matrix
+                # restore the initial node switching matrix
                 node_dic = json.load(open(file, 'r'))
                 for node_label in path:
                     self._nodes[node_label].switching_matrix = node_dic[node_label]['switching_matrix']
@@ -588,10 +590,10 @@ class Network(object):
 
     def calculate_bit_rate(self, lightpath, strategy):
         row_df = self._weighted_paths.loc[self._weighted_paths['path'] == lightpath.path]
-        gsnr = row_df['snr'].values[0]
+        gsnr = row_df['snr'].values[0]  # Retrieve the gsnr for a specific path for the first node
         # print('gsnr', gsnr)
         rb = 0
-        rs = lightpath.rs
+        rs = lightpath.rs  # symbol rate
         # 1 fixed-rate
         if strategy == 'fixed_rate':
             if gsnr >= 2*(sc.erfcinv(2*BERt)**2)*(rs/Bn):

@@ -25,7 +25,7 @@ def set_static_switch_mtx(node_dict):
         possible_o_node = node_dict['switching_matrix'].get(i_node)
         new_switch_mtx[i_node] = possible_o_node
         for o_node in possible_o_node.keys():
-            resized_nch = node_dict['switching_matrix'].get(i_node).get(o_node)[:n_ch]
+            resized_nch = node_dict['switching_matrix'].get(i_node).get(o_node)[:n_ch]  # consider only nch elements
             new_switch_mtx[i_node][o_node] = resized_nch
     return new_switch_mtx
 
