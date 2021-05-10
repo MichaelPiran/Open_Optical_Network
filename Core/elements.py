@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.special as sc
+import random
 from scipy.constants import c, Planck
 from Core.utils import update_route_space, set_static_switch_mtx
 from Core.parameters import *
@@ -210,8 +211,7 @@ class Line(object):
         self._n_amplifiers = np.ceil(line_dict['length']/conv_kilo_to_unit(80))  # one amplifier at each 80km
         self._gain = conv_db_to_linear(16)  # G
         self._noise_figure = conv_db_to_linear(3)  # NF
-        self._alpha = (pow(10, (0.2/20))) / 1000  # alpha = 0.2 dB/Km
-        # self._alpha = 0.2/(20*np.log10(np.exp(1))*conv_kilo_to_unit(1))  # alpha = 0.2 dB/Km
+        self._alpha = 0.2/(20*np.log10(np.exp(1))*1000)  # alpha = 0.2 dB/Km
         self._beta2_abs = 2.13e-26  # beta2_abs = 2.13e-26 (m*(Hz^2))^-1
         self._gamma = 1.27e-3  # gamma = 1.27 (W m)^-1
         self._optimal_launch_power = 0
@@ -308,6 +308,8 @@ class Line(object):
         nli = eta_nli * n_span * (p_ch ** 3) * Bn
         nli_struct.append(eta_nli)
         nli_struct.append(nli)
+        # print("eta nli:  ", eta_nli)
+        # print("nli:  ", nli)
         return nli_struct
 
     def optimized_launch_power(self):
@@ -329,6 +331,7 @@ class Network(object):
         self._route_space = pd.DataFrame()
         self._static_switch_mtx = {}  # complete switching network from file
         self._rejected_request = []
+        self._traffic_matrix = {}
 
         routing_state = []  # state of each path for the routing space
         routing_index = []  # path for the routing space
@@ -519,7 +522,7 @@ class Network(object):
                         for j in range(n_ch):
                             if self.lines[label].state[j] == free:
                                 ch_free.append(j)  # append all free channel
-                    else:
+                    else:  # otherwise
                         x = self._nodes[path[i]].switching_matrix[path[i - 1]][path[i + 1]]
                         for j in ch_free:  # look only the available
                             if (self.lines[label].state[j] == occupied) or (x[j] == occupied):
@@ -613,9 +616,37 @@ class Network(object):
         # 3 shannon
         if strategy == 'shannon':
             rb = 2*rs*np.log2(1+gsnr*(Bn/rs))*1e9
-        print(rb)
         return rb
 
+    def manage_traffic_mtx(self):
+        # Create the traffic matrix
+        traffic_json = json.load(open(Path(__file__).parent.parent/'Resources'/'traffic_matrix_file.json', "r"))
+        for t_node in traffic_json:
+            self._traffic_matrix[t_node] = traffic_json[t_node]
+        # Manage connections
+        inode_arr = []
+        onode_arr = []
+        node_ret_arr = []
+        eff_n_con = 0  # count the effective number of connection
+        rej_conn = 0   # count the rejected  number of connection
+        print('Traffic matrix generation: ')
+        for i in range(nconn_t_mtx):
+            i_node = random.choice(list(self._nodes))  # Random input node
+            o_node = random.choice(list(self._nodes))  # Random output node
+            if self._traffic_matrix[i_node][o_node][0] >= (M*100e9):
+                eff_n_con += 1
+                # update traffic matrix
+                self._traffic_matrix[i_node][o_node][0] = self._traffic_matrix[i_node][o_node][0] - M * 100e9
+                inode_arr.append(i_node)
+                onode_arr.append(o_node)
+            else:
+                rej_conn += 1
+                print('Rejected connection ', i_node, '->', o_node, '  --  Traffic request not supported')
+        print('Total rejected connection: ', rej_conn, ' over ', nconn_t_mtx)
+        node_ret_arr.append(inode_arr)
+        node_ret_arr.append(onode_arr)
+        node_ret_arr.append(eff_n_con)
+        return node_ret_arr
 
 #############################################################
 

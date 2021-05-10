@@ -25,5 +25,10 @@ plt.figure(figsize=(9, 3))
 plt.bar(lbl_axes, rb_axes)  # snr distribution
 plt.ylabel('bit_rate')
 plt.show()
-print('The average bit rate is: ', sum_rb/rnd_con)
+avg_rb = sum_rb/rnd_con
+print('The average bit rate is: ', avg_rb, 'bit/s')
+print('The total capacity allocated: ', sum_rb, 'bit/s')
+print('The rejected request are ', len(network.rejected_request), ': ')
+for r in range(len(network.rejected_request)):
+    print('In: ', network.rejected_request[r].input, ' Out: ', network.rejected_request[r].output)
 print('End lab8')

@@ -67,7 +67,7 @@ def update_route_space(route_space, nodes, lines, path):
             if i == 0:  # first node
                 route_space.loc[label] = np.array(lines[label].state)  # update route_space
             else:
-                x = np.transpose(nodes[path[i]].switching_matrix[path[i-1]][path[i+1]])
+                x = np.transpose(nodes[path[i]].switching_matrix[path[i-1]][path[i+1]][:n_ch])
                 result = lines[label].state * x  # 1x10 * 10x1
                 route_space.loc[label] = np.array(result)  # update route_space
     else:
