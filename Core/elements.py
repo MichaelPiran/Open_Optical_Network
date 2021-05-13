@@ -269,7 +269,7 @@ class Line(object):
         self._optimal_launch_power = power
 
     def latency_generation(self):
-        latency = self.length / (c * 2 / 3)
+        latency = self.length / (c * 2 / 3)  # delay = L/(c/n)
         return latency
 
     def noise_generation(self):
@@ -283,7 +283,7 @@ class Line(object):
         latency = self.latency_generation()
         signal.add_latency(latency)
 
-        noise = self.noise_generation()
+        noise = self.noise_generation()  # ASE + NLI
         pch = Line.optimized_launch_power(self)
         gsnr = pch / noise
         signal.add_noise(1/gsnr)
@@ -304,7 +304,9 @@ class Line(object):
         x1 = 0.5 * (np.pi**2) * self._beta2_abs * (Rs**2) * (1/self._alpha) * n_ch**(2*(Rs/Df))
         x2 = (self._gamma ** 2) / (4 * self._alpha * self._beta2_abs * (Rs ** 3))
         eta_nli = (16/(27 * np.pi)) * np.log10(x1) * x2
-        p_ch = (self.ase_generation() / (2 * eta_nli))**(1/3)
+        # p_ch = (self.ase_generation() / (2 * eta_nli))**(1/3)
+        p_ch = ((Planck*freq*Bn*self._noise_figure*self._alpha*self.length)/(2*Bn*eta_nli))**(1/3)
+        # print("channel power: ", p_ch)
         nli = eta_nli * n_span * (p_ch ** 3) * Bn
         nli_struct.append(eta_nli)
         nli_struct.append(nli)
@@ -402,7 +404,7 @@ class Network(object):
                 noises.append(signal_information.noise_power)
                 # snrs.append(10 * np.log10(signal_information.signal_power / signal_information.noise_power))
                 # snrs.append(signal_information.noise_power)
-                snrs.append(10 * np.log(signal_information.noise_power))
+                snrs.append(1/signal_information.noise_power)
         df['path'] = paths
         df['latency'] = latencies
         df['noise'] = noises
@@ -532,6 +534,7 @@ class Network(object):
                     if self.lines[path].state[i] == free:
                         ch_free.append(i)  # append all free channel
             if len(ch_free) > 0:
+                # I can garantee wavelength continuity
                 network_availability[path] = ch_free[0]  # choose the first available channel
         return network_availability
 
@@ -581,10 +584,12 @@ class Network(object):
                 for node_label in path:
                     self._nodes[node_label].switching_matrix = node_dic[node_label]['switching_matrix']
 
-                if lat_snr_label == 'latency':  # If check for latency
-                    elem.latency = lightpath.latency
-                elif lat_snr_label == 'snr':
-                    elem.snr = 10 * np.log10(lightpath.signal_power / lightpath.noise_power)
+                elem.latency = lightpath.latency
+                elem.snr = 10 * np.log10(1 / lightpath.noise_power)
+                # if lat_snr_label == 'latency':  # If check for latency
+                #     elem.latency = lightpath.latency
+                # elif lat_snr_label == 'snr':
+                #     elem.snr = 10 * np.log10(1 / lightpath.noise_power)
             else:  # no free path available
                 # Specific request is rejected
                 self._rejected_request.append(elem)

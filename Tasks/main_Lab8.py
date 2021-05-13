@@ -16,14 +16,26 @@ for i in range(rnd_con):
 network.stream(con_dict, 'snr')  # run for the snr
 lbl_axes = []
 rb_axes = []
+lat_axes = []
+snr_axes = []
 sum_rb = 0
 for i in range(rnd_con):
     lbl_axes.append(con_dict[i].input + con_dict[i].output)
     rb_axes.append(con_dict[i].bit_rate)
+    lat_axes.append(con_dict[i].latency)
+    snr_axes.append(con_dict[i].snr)
     sum_rb += con_dict[i].bit_rate
 plt.figure(figsize=(9, 3))
-plt.bar(lbl_axes, rb_axes)  # snr distribution
-plt.ylabel('bit_rate')
+plt.bar(lbl_axes, rb_axes)  # bit rate distribution
+plt.ylabel('bit_rate [b/s]')
+
+plt.figure(figsize=(9, 3))
+plt.bar(lbl_axes, lat_axes)  # Latency distribution
+plt.ylabel('Latency [s]')
+
+plt.figure(figsize=(9, 3))
+plt.bar(lbl_axes, snr_axes)  # snr distribution
+plt.ylabel('snr [dB]')
 plt.show()
 avg_rb = sum_rb/rnd_con
 print('The average bit rate is: ', avg_rb, 'bit/s')

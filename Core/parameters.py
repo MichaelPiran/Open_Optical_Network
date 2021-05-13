@@ -17,7 +17,7 @@ folder = root/'Resources'
 file = folder/'nodes_full_shannon.json'
 
 Rs = 32e9  # Symbol-rate of the lightpath : 32GHz
-Bn = 12.5*(10**9)  # Noise bandwidth : 12.5GHz
+Bn = 12.5e9  # Noise bandwidth : 12.5GHz
 BERt = 10e-3  # maximun error rate
 freq = 193.414e12  # C-band center
 Bopt = 4.4e12  # C-band width (195.6-191.2)THz
