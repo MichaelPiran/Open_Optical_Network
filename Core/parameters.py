@@ -11,10 +11,10 @@ root = Path(__file__).parent.parent
 folder = root/'Resources'
 # file = folder/'nodes.json'  # Obsolete
 # file = folder/'nodes_full.json'  # All path available in the switching matrices
-# file = folder/'nodes_not_full.json'  # Not all path available in the switching matrices
+file = folder/'nodes_not_full.json'  # Not all path available in the switching matrices
 # file = folder/'nodes_full_fixed_rate.json'
 # file = folder/'nodes_full_flex_rate.json'
-file = folder/'nodes_full_shannon.json'
+# file = folder/'nodes_full_shannon.json'
 
 Rs = 32e9  # Symbol-rate of the lightpath : 32GHz
 Bn = 12.5e9  # Noise bandwidth : 12.5GHz
@@ -26,3 +26,5 @@ Df = 50e9  # Bopt/n_ch
 # Traffic matrix
 M = 1  # traffic bit rate constant
 nconn_t_mtx = 100  # number of connection controlled by traffic matrix
+# Create output data file
+CreateFileFlag = 'False'

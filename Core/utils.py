@@ -3,6 +3,8 @@ General function that we use in the code.
 """
 # from scipy.constants import c
 import numpy as np
+import json
+import time
 from Core.parameters import *
 
 
@@ -30,29 +32,6 @@ def set_static_switch_mtx(node_dict):
     return new_switch_mtx
 
 
-# def stream_propagate(lightpath, lines):
-#     # given a line between two nodes, propagate a lightpath
-#     if len(lightpath.path) > 1:
-#         line_label = lightpath.path[:2]  # consider two node at time
-#         current_line = lines[line_label]  # select current line
-#         length = current_line.length  # take lenght of that piece of line
-#         latency = length / (c * 2 / 3)  # evaluate the latency
-#         noise = 1e-3 * lightpath.signal_power * length  # evaluate the noise
-#         lightpath.add_latency(latency)  # latency of lightpath
-#         lightpath.add_noise(noise)  # noise of lightpath
-#
-#         free_channel = channel_available(current_line)  # select first channel available
-#         # occupy the channel "line.state[n_ch]= occupy"
-#         current_line.state[free_channel] = occupied
-#         # update the routing space
-#         # route_space.loc[line_label, free_channel] = 'occupied'  # update routing space
-#
-#         lightpath.set_channel(free_channel)
-#         lightpath.next()  # consider next lightpath
-#         lightpath = stream_propagate(lightpath, lines)  # Call successive element propagate method
-#     return lightpath
-
-
 def update_route_space(route_space, nodes, lines, path):
     """
     If the path is composed of two nodes, we rewrite the routing space with
@@ -74,3 +53,21 @@ def update_route_space(route_space, nodes, lines, path):
         # routing space rewritten equal to line
         route_space.loc[path] = np.array(lines[path].state)  # update route_space
     return route_space
+
+
+def create_file_result(lbl_index, rb_index, lat_index, snr_index, n_conn):
+    timestr = time.strftime("%Y_%m_%d_h%Hm%Ms%S")
+    namefile = timestr + '.json'
+    root_res = Path(__file__).parent.parent
+    folder_res = root_res / 'Results' / 'File_results'
+    file_res = folder_res / namefile
+    data_file = {}
+    sub_data_file = {}
+    for i in range(n_conn):
+        sub_data_file['Bit rate [b/s]'] = rb_index[i]
+        sub_data_file['Latency [s]'] = lat_index[i]
+        sub_data_file['Snr [dB]'] = snr_index[i]
+        data_file[lbl_index[i]] = sub_data_file
+    json_object = json.dumps(data_file, indent=4)
+    with open(file_res, 'w') as outfile:
+        outfile.write(json_object)

@@ -3,6 +3,7 @@ import random
 import matplotlib.pyplot as plt
 from Core.elements import Connection
 from Core.istance_network import *
+from Core.utils import create_file_result
 
 rnd_con = 100
 con_dict = []
@@ -25,6 +26,10 @@ for i in range(rnd_con):
     lat_axes.append(con_dict[i].latency)
     snr_axes.append(con_dict[i].snr)
     sum_rb += con_dict[i].bit_rate
+if CreateFileFlag == 'True' :
+    # Create output data file
+    create_file_result(lbl_axes, rb_axes, lat_axes, snr_axes, rnd_con)
+
 plt.figure(figsize=(9, 3))
 plt.bar(lbl_axes, rb_axes)  # bit rate distribution
 plt.ylabel('bit_rate [b/s]')

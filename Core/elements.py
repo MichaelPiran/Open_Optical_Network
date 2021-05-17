@@ -361,7 +361,7 @@ class Network(object):
             if 'transceiver' in node_dict:
                 self._nodes[node_label].transceiver = node_dict['transceiver']
             else:  # default value
-                self._nodes[node_label].transceiver = 'fixed-rate'
+                self._nodes[node_label].transceiver = 'fixed_rate'
         # Define the route space
         self._route_space = pd.DataFrame(routing_state, routing_index)  # Route space data frame
 
@@ -462,7 +462,6 @@ class Network(object):
     def connect(self):
         nodes_dict = self.nodes
         lines_dict = self.lines
-        # Define also the switching_matrix for each node
         for node_label in nodes_dict:
             node = nodes_dict[node_label]
             for connected_node in node.connected_nodes:
@@ -470,6 +469,7 @@ class Network(object):
                 line = lines_dict[line_label]
                 line.successive[connected_node] = nodes_dict[connected_node]
                 node.successive[line_label] = lines_dict[line_label]
+            # Define also the switching_matrix for each node
             node.switching_matrix = self._static_switch_mtx[node_label]
 
     def propagate(self, signal):
@@ -483,6 +483,7 @@ class Network(object):
         snr_list = []
         max_path = {}
         for path in path_struc.keys():  # Retrieve all paths
+            # Retrieve the row from the weighted path structure
             row_df = self._weighted_paths.loc[self._weighted_paths['path'] == path]
             row = row_df['path'].values[0]
             snr_list.append(row_df['snr'].values[0])
@@ -529,7 +530,7 @@ class Network(object):
                         for j in ch_free:  # look only the available
                             if (self.lines[label].state[j] == occupied) or (x[j] == occupied):
                                 ch_free.remove(j)  # remove if no wavelenght continuity
-            else:  # Direct connection
+            else:  # Direct connection check only the availability of the line
                 for i in range(n_ch):
                     if self.lines[path].state[i] == free:
                         ch_free.append(i)  # append all free channel
@@ -559,7 +560,6 @@ class Network(object):
                         path_ch = Network.find_best_latency(self, possible_path)
                     elif lat_snr_label == 'snr':  # If check for snr
                         path_ch = Network.find_best_snr(self, possible_path)
-                    # print(path_ch)
                     path = list(path_ch.keys())[0]  # retrieve path
                     channel = list(path_ch.values())[0]  # retrieve channel
 
@@ -599,7 +599,6 @@ class Network(object):
     def calculate_bit_rate(self, lightpath, strategy):
         row_df = self._weighted_paths.loc[self._weighted_paths['path'] == lightpath.path]
         gsnr = row_df['snr'].values[0]  # Retrieve the gsnr for a specific path for the first node
-        # print('gsnr', gsnr)
         rb = 0
         rs = lightpath.rs  # symbol rate
         # 1 fixed-rate
