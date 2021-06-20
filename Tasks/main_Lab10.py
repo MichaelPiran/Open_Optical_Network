@@ -19,6 +19,7 @@ if eff_n_conn > 0:
 else:
     print("Network saturation, no available connection")
     exit()
+
 lbl_axes = []
 rb_axes = []
 lat_axes = []
@@ -30,7 +31,7 @@ for i in range(eff_n_conn):
     lat_axes.append(con_dict[i].latency)
     snr_axes.append(con_dict[i].snr)
     sum_rb += con_dict[i].bit_rate
-if CreateFileFlag == 'True' :
+if CreateFileFlag == 'True':
     # Create output data file
     create_file_result(lbl_axes, rb_axes, lat_axes, snr_axes, eff_n_conn)
 plt.figure(figsize=(9, 3))
